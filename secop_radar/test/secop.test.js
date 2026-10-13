@@ -45,7 +45,8 @@ test("validación", async (t) => {
 });
 
 test("cláusulas SoQL", async (t) => {
-  const desde = new Date(2026, 8, 13); // 13 de septiembre de 2026, hora local
+  const desde = new Date(Date.UTC(2026, 8, 13, 17)); // 13 de septiembre de 2026, mediodía en Bogotá
+  const hoy = new Date(Date.UTC(2026, 9, 13, 17)); // 13 de octubre de 2026, mediodía en Bogotá
 
   await t.test("literal duplica las comillas simples", () => {
     assert.equal(Secop.literal("a'b"), "'a''b'");
@@ -55,7 +56,7 @@ test("cláusulas SoQL", async (t) => {
     const perfil = Secop.parsearPerfil({
       codigos: "8011", palabras: "mantenimiento", min: "1000000", max: "9000000", departamento: "antioquia",
     });
-    const clausula = Secop.clausulaOportunidades(perfil, desde);
+    const clausula = Secop.clausulaOportunidades(perfil, desde, hoy);
     for (const fragmento of [
       "estado_de_apertura_del_proceso = 'Abierto'",
       "fecha_de_publicacion_del >= '2026-09-13T00:00:00'",
@@ -80,17 +81,32 @@ test("cláusulas SoQL", async (t) => {
   });
 
   await t.test("el filtro competitivo excluye directa pero no las variantes con ofertas", () => {
-    const clausula = Secop.clausulaOportunidades(Secop.parsearPerfil({ codigos: "8011" }), desde);
+    const clausula = Secop.clausulaOportunidades(Secop.parsearPerfil({ codigos: "8011" }), desde, hoy);
     assert.ok(clausula.includes("modalidad_de_contratacion not in ("));
     assert.ok(clausula.includes("'Contratación directa'"));
     assert.ok(clausula.includes("'Contratación régimen especial'"));
     assert.ok(!clausula.includes("(con ofertas)"));
   });
 
+  await t.test("por defecto solo pide procesos con plazo vigente y sin adjudicar", () => {
+    const perfil = Secop.parsearPerfil({ codigos: "8011" });
+    assert.equal(perfil.abiertos, true);
+    const clausula = Secop.clausulaOportunidades(perfil, desde, hoy);
+    assert.ok(clausula.includes("fecha_de_recepcion_de >= '2026-10-13T00:00:00'"));
+    assert.ok(clausula.includes("adjudicado = 'No'"));
+  });
+
+  await t.test("con abiertos desactivado no filtra por plazo ni por adjudicación", () => {
+    const perfil = Secop.parsearPerfil({ codigos: "8011", abiertos: "0" });
+    const clausula = Secop.clausulaOportunidades(perfil, desde, hoy);
+    assert.ok(!clausula.includes("fecha_de_recepcion_de"));
+    assert.ok(!clausula.includes("adjudicado ="));
+  });
+
   await t.test("el filtro competitivo se puede desactivar", () => {
     const perfil = Secop.parsearPerfil({ codigos: "8011", competitivos: "0" });
     assert.equal(perfil.competitivos, false);
-    assert.ok(!Secop.clausulaOportunidades(perfil, desde).includes("not in"));
+    assert.ok(!Secop.clausulaOportunidades(perfil, desde, hoy).includes("not in"));
   });
 });
 
@@ -158,7 +174,7 @@ function clienteFalso(responder, { ahora } = {}) {
     const url = new URL(direccion);
     const parametros = Object.fromEntries(url.searchParams);
     llamadas.push({ base: url.origin + url.pathname, parametros });
-    return { ok: true, status: 200, json: async () => responder(parametros) };
+    return { ok: true, status: 200, json: async () => responder(parametros, url.origin + url.pathname) };
   };
   return { cliente: Secop.crearCliente({ fetchFn, ahora }), llamadas };
 }
@@ -176,7 +192,7 @@ test("casos de uso con datos.gov.co simulado", async (t) => {
       fila("A", "Mantenimiento de software", "V1.80111600", "2026-10-09T00:00:00.000"),
       { nombre_del_procedimiento: "Sin identificador" },
     ];
-    const { cliente, llamadas } = clienteFalso(() => filas, { ahora: () => new Date(2026, 9, 13).getTime() });
+    const { cliente, llamadas } = clienteFalso(() => filas, { ahora: () => Date.UTC(2026, 9, 13, 17) });
     const resultado = await cliente.buscarOportunidades({ palabras: "software, mantenimiento", codigos: "8011" });
 
     assert.deepEqual(resultado.resultados.map((op) => op.id), ["A", "B"]);
@@ -185,7 +201,7 @@ test("casos de uso con datos.gov.co simulado", async (t) => {
     assert.equal(llamadas.length, 1);
     assert.equal(llamadas[0].base, Secop.URL_PROCESOS);
     assert.ok(llamadas[0].parametros.$where.includes("'Abierto'"));
-    assert.equal(llamadas[0].parametros.$order, "fecha_de_publicacion_del DESC");
+    assert.equal(llamadas[0].parametros.$order, "fecha_de_recepcion_de ASC");
   });
 
   await t.test("el mercado convierte texto de la fuente en números y filtra por consulta", async () => {
@@ -246,5 +262,222 @@ test("casos de uso con datos.gov.co simulado", async (t) => {
     momento += 601_000; // pasaron más de 10 minutos
     await cliente.buscarOportunidades(params);
     assert.equal(llamadas.length, 2);
+  });
+});
+
+test("fechas en hora de Colombia", async (t) => {
+  await t.test("fechaIso usa la fecha de Bogotá, no la del servidor", () => {
+    // 03:00 UTC del 14 de octubre son las 22:00 del 13 de octubre en Bogotá.
+    assert.equal(Secop.fechaIso(new Date(Date.UTC(2026, 9, 14, 3))), "2026-10-13");
+    assert.equal(Secop.fechaIso(new Date(Date.UTC(2026, 9, 14, 6))), "2026-10-14");
+  });
+
+  await t.test("diasHasta cuenta días de calendario", () => {
+    const hoy = new Date(Date.UTC(2026, 9, 31, 17)); // 31 de octubre
+    assert.equal(Secop.diasHasta("2026-10-31", hoy), 0);
+    assert.equal(Secop.diasHasta("2026-11-01", hoy), 1);
+    assert.equal(Secop.diasHasta("2026-10-29", hoy), -2);
+    assert.equal(Secop.diasHasta("2027-01-01", hoy), 62);
+    assert.equal(Secop.diasHasta(null, hoy), null);
+  });
+});
+
+test("normalizarProceso: adjudicación y cierre", async (t) => {
+  await t.test("lee cierre, estado, portafolio y entidad", () => {
+    const op = Secop.normalizarProceso({
+      id_del_proceso: "CO1.REQ.1", fecha_de_recepcion_de: "2026-10-16T00:00:00.000", estado_resumen: "Presentación de oferta",
+      id_del_portafolio: "CO1.BDOS.9", nit_entidad: "899999027", adjudicado: "No",
+    });
+    assert.equal(op.cierre, "2026-10-16");
+    assert.equal(op.estado, "Presentación de oferta");
+    assert.equal(op.portafolio, "CO1.BDOS.9");
+    assert.equal(op.nit_entidad, "899999027");
+    assert.equal(op.adjudicado, false);
+  });
+
+  await t.test("trata 'No Definido' y 'No Adjudicado' como ausencia de dato", () => {
+    const op = Secop.normalizarProceso({
+      id_del_proceso: "CO1.REQ.2", adjudicado: "Si", valor_total_adjudicacion: "21559944",
+      nombre_del_proveedor: "No Definido", nit_del_proveedor_adjudicado: "No Adjudicado",
+    });
+    assert.equal(op.adjudicado, true);
+    assert.equal(op.valor_adjudicado, 21559944);
+    assert.equal(op.ganador, null);
+    assert.equal(op.nit_ganador, null);
+  });
+
+  await t.test("conserva al ganador cuando sí hay dato", () => {
+    const op = Secop.normalizarProceso({ nombre_del_proveedor: "OFICIAR S.A.S", nit_del_proveedor_adjudicado: "830013740" });
+    assert.equal(op.ganador, "OFICIAR S.A.S");
+    assert.equal(op.nit_ganador, "830013740");
+  });
+});
+
+test("búsqueda de oportunidades abiertas", async (t) => {
+  await t.test("devuelve todos, pide primero los que cierran antes y avisa si se alcanzó el tope", async () => {
+    const filas = Array.from({ length: 1000 }, (_, i) => ({
+      id_del_proceso: `CO1.REQ.${i}`, nombre_del_procedimiento: "Software", fecha_de_recepcion_de: "2026-10-20T00:00:00.000",
+    }));
+    const { cliente, llamadas } = clienteFalso(() => filas, { ahora: () => Date.UTC(2026, 9, 13, 17) });
+    const resultado = await cliente.buscarOportunidades({ palabras: "software" });
+    assert.equal(resultado.limite_alcanzado, true);
+    assert.equal(resultado.resultados.length, 1000); // se devuelven todos; la interfaz los pagina
+    assert.equal(llamadas[0].parametros.$order, "fecha_de_recepcion_de ASC");
+    assert.equal(llamadas[0].parametros.$limit, "1000");
+  });
+
+  await t.test("sin filtro de abiertos ordena por publicación reciente", async () => {
+    const { cliente, llamadas } = clienteFalso(() => [], { ahora: () => Date.UTC(2026, 9, 13, 17) });
+    const resultado = await cliente.buscarOportunidades({ palabras: "software", abiertos: "0" });
+    assert.equal(resultado.limite_alcanzado, false);
+    assert.equal(llamadas[0].parametros.$order, "fecha_de_publicacion_del DESC");
+  });
+});
+
+test("clase de categoría y contratos", async (t) => {
+  await t.test("claseCategoria toma los 6 primeros dígitos del código UNSPSC", () => {
+    assert.equal(Secop.claseCategoria("V1.80111600"), "801116");
+    assert.equal(Secop.claseCategoria("UNSPECIFIED"), null);
+    assert.equal(Secop.claseCategoria(null), null);
+  });
+
+  await t.test("normalizarContrato ordena el estado y descarta valores absurdos", () => {
+    const c = Secop.normalizarContrato({
+      id_contrato: "CO1.PCCNTR.1", proceso_de_compra: "CO1.BDOS.1", estado_contrato: "terminado",
+      valor_del_contrato: "104249364104249364", valor_pagado: "500", dias_adicionados: "30", proveedor_adjudicado: "No Definido",
+    });
+    assert.equal(c.estado, "Terminado");
+    assert.equal(c.valor, null, "un valor mayor al máximo plausible es un error de digitación");
+    assert.equal(c.pagado, 500);
+    assert.equal(c.dias_adicionados, 30);
+    assert.equal(c.proveedor, null);
+  });
+});
+
+test("adjudicados y ejecución", async (t) => {
+  const ahora = () => Date.UTC(2026, 9, 13, 17);
+  const procesoAdj = (i) => ({
+    id_del_proceso: `CO1.REQ.${i}`, id_del_portafolio: `CO1.BDOS.${i}`, nombre_del_procedimiento: "Mantenimiento de equipos",
+    codigo_principal_de_categoria: "V1.80111600", adjudicado: "Si", precio_base: "100", valor_total_adjudicacion: "90",
+    fecha_adjudicacion: "2026-10-01T00:00:00.000", nombre_del_proveedor: "Empresa Uno", nit_del_proveedor_adjudicado: "901000111",
+  });
+
+  await t.test("la cláusula pide adjudicados recientes y no mira el plazo de recepción", () => {
+    const perfil = Secop.parsearPerfil({ palabras: "software" });
+    const clausula = Secop.clausulaAdjudicados(perfil, new Date(Date.UTC(2026, 6, 15, 17)));
+    assert.ok(clausula.includes("adjudicado = 'Si'"));
+    assert.ok(clausula.includes("fecha_adjudicacion >= '2026-07-15T00:00:00'"));
+    assert.ok(!clausula.includes("fecha_de_recepcion_de"));
+    assert.ok(clausula.includes("upper(nombre_del_procedimiento) like '%SOFTWARE%'"));
+  });
+
+  await t.test("cruza cada proceso con su contrato por portafolio y consulta en lotes de 100", async () => {
+    const filas = Array.from({ length: 250 }, (_, i) => procesoAdj(i));
+    filas.push(procesoAdj(0)); // repetido: la fuente duplica filas
+    const contratos = (parametros) => {
+      const ids = [...parametros.$where.matchAll(/'(CO1\.BDOS\.\d+)'/g)].map((m) => m[1]);
+      return ids.filter((id) => Number(id.split(".").pop()) % 2 === 0).map((id) => ({
+        proceso_de_compra: id, id_contrato: `C-${id}`, estado_contrato: "En ejecución", valor_del_contrato: "90", valor_pagado: "45",
+      }));
+    };
+    const { cliente, llamadas } = clienteFalso((parametros, base) => (base === Secop.URL_PROCESOS ? filas : contratos(parametros)), { ahora });
+    const r = await cliente.buscarAdjudicados({ palabras: "mantenimiento", meses: "3" });
+
+    assert.equal(r.resultados.length, 250, "deduplica por proceso");
+    assert.equal(r.meses, 3);
+    assert.equal(r.desde, "2026-07-15"); // 3 meses = 90 días antes del 13 de octubre
+    const consultasContratos = llamadas.filter((l) => l.base === Secop.URL_CONTRATOS);
+    assert.equal(consultasContratos.length, 3, "250 portafolios en lotes de 100");
+    assert.equal(r.resultados.filter((p) => p.contrato).length, 125);
+    const conContrato = r.resultados.find((p) => p.portafolio === "CO1.BDOS.4");
+    assert.equal(conContrato.contrato.estado, "En ejecución");
+    assert.equal(conContrato.contrato.pagado, 45);
+    assert.equal(r.resultados.find((p) => p.portafolio === "CO1.BDOS.5").contrato, null);
+    assert.equal(llamadas[0].parametros.$order, "fecha_adjudicacion DESC");
+  });
+
+  await t.test("si un proceso tiene varios contratos muestra el de mayor valor y los cuenta", async () => {
+    const respuestas = (parametros, base) => (base === Secop.URL_PROCESOS
+      ? [procesoAdj(1)]
+      : [
+          { proceso_de_compra: "CO1.BDOS.1", id_contrato: "A", estado_contrato: "Aprobado", valor_del_contrato: "30" },
+          { proceso_de_compra: "CO1.BDOS.1", id_contrato: "B", estado_contrato: "En ejecución", valor_del_contrato: "60" },
+        ]);
+    const { cliente } = clienteFalso(respuestas, { ahora });
+    const r = await cliente.buscarAdjudicados({ palabras: "mantenimiento" });
+    assert.equal(r.resultados[0].contrato.id, "B");
+    assert.equal(r.resultados[0].contrato.contratos, 2);
+  });
+
+  await t.test("sin procesos no consulta contratos y valida los meses", async () => {
+    const { cliente, llamadas } = clienteFalso(() => [], { ahora });
+    const r = await cliente.buscarAdjudicados({ palabras: "mantenimiento" });
+    assert.deepEqual(r.resultados, []);
+    assert.equal(llamadas.length, 1);
+    await assert.rejects(cliente.buscarAdjudicados({ palabras: "mantenimiento", meses: "99" }), Secop.ErrorDeValidacion);
+  });
+});
+
+test("competencia histórica de una entidad", async (t) => {
+  const ahora = () => Date.UTC(2026, 9, 13, 17);
+  const filaProceso = (i) => ({
+    id_del_proceso: `CO1.REQ.${i}`, precio_base: "100", valor_total_adjudicacion: "90",
+    nit_del_proveedor_adjudicado: "901000111", nombre_del_proveedor: "Empresa Uno", fecha_adjudicacion: "2026-05-01T00:00:00.000",
+  });
+
+  await t.test("rechaza un NIT que no sea numérico", async () => {
+    const { cliente } = clienteFalso(() => [], { ahora });
+    for (const nit of ["", "abc", "9000'; DROP", "123"]) {
+      await assert.rejects(cliente.competenciaHistorica({ nit_entidad: nit, categoria: "V1.80111600" }), Secop.ErrorDeValidacion, nit);
+    }
+  });
+
+  await t.test("con historial suficiente consulta procesos y proponentes, sin recurrir al nivel nacional", async () => {
+    const procesos = Array.from({ length: 6 }, (_, i) => filaProceso(i));
+    const proponentes = (parametros) => {
+      const ids = [...parametros.$where.matchAll(/'(CO1\.REQ\.\d+)'/g)].map((m) => m[1]);
+      return ids.flatMap((id) => [{ id_procedimiento: id, nit_proveedor: "901000111", proveedor: "Empresa Uno" }, { id_procedimiento: id, nit_proveedor: "900", proveedor: "Otra" }]);
+    };
+    const { cliente, llamadas } = clienteFalso((parametros, base) => (base === Secop.URL_PROCESOS ? procesos : proponentes(parametros)), { ahora });
+    const raw = await cliente.competenciaHistorica({ nit_entidad: "899999034", categoria: "V1.72151802" });
+
+    assert.equal(raw.clase, "721518");
+    assert.equal(raw.pais, null);
+    assert.equal(raw.entidad.procesos.length, 6);
+    assert.equal(raw.entidad.proponentes.length, 12);
+    assert.equal(llamadas.length, 2);
+    const donde = llamadas[0].parametros.$where;
+    for (const fragmento of ["nit_entidad = '899999034'", "codigo_principal_de_categoria like 'V1.721518%'", "adjudicado = 'Si'",
+      "fecha_adjudicacion >= '2024-10-13T00:00:00'", "not in (", "valor_total_adjudicacion <= precio_base * 2"]) {
+      assert.ok(donde.includes(fragmento), `falta: ${fragmento}`);
+    }
+    assert.equal(llamadas[1].base, Secop.URL_PROPONENTES);
+    assert.ok(llamadas[1].parametros.$where.startsWith("id_procedimiento in ('CO1.REQ.0'"));
+  });
+
+  await t.test("con pocos procesos y categoría, complementa con el nivel nacional (sin alias que choquen con columnas)", async () => {
+    const responder = (parametros, base) => {
+      if (base === Secop.URL_PROPONENTES) return [];
+      if (parametros.$group) return [{ nit_del_proveedor_adjudicado: "Z", nombre: "Empresa Z", ganados: "30", valor: "5000" }];
+      if (parametros.$select.startsWith("count(*)")) return [{ n: "100", suma_adjudicada: "8000", suma_base: "10000" }];
+      return [filaProceso(1), filaProceso(2)];
+    };
+    const { cliente, llamadas } = clienteFalso(responder, { ahora });
+    const raw = await cliente.competenciaHistorica({ nit_entidad: "899999034", categoria: "V1.72151802" });
+
+    assert.equal(raw.entidad.procesos.length, 2);
+    assert.deepEqual(raw.pais.totales, { n: 100, adjudicado: 8000, base: 10000 });
+    assert.equal(raw.pais.ganadores[0].ganados, 30);
+    const totales = llamadas.find((l) => l.parametros.$select?.startsWith("count(*)"));
+    assert.ok(!/\bas adjudicado\b/.test(totales.parametros.$select), "un alias llamado 'adjudicado' choca con la columna");
+    assert.ok(!totales.parametros.$where.includes("nit_entidad"), "el nivel nacional no filtra por entidad");
+  });
+
+  await t.test("sin categoría no usa el nivel nacional", async () => {
+    const { cliente, llamadas } = clienteFalso((parametros, base) => (base === Secop.URL_PROCESOS ? [filaProceso(1)] : []), { ahora });
+    const raw = await cliente.competenciaHistorica({ nit_entidad: "899999034", categoria: "UNSPECIFIED" });
+    assert.equal(raw.clase, null);
+    assert.equal(raw.pais, null);
+    assert.ok(!llamadas[0].parametros.$where.includes("codigo_principal_de_categoria"));
   });
 });
