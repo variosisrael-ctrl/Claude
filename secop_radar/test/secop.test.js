@@ -27,6 +27,14 @@ test("validación", async (t) => {
     rechaza(() => Secop.parsearPerfil({ dias: "30" }));
   });
 
+  await t.test("el modo amplio (resumen de las alertas) permite no indicar palabras ni códigos", () => {
+    const perfil = Secop.parsearPerfil({ dias: "3", min: "50000000" }, { amplio: true });
+    assert.deepEqual([perfil.palabras, perfil.codigos], [[], []]);
+    assert.equal(perfil.min, 50000000);
+    rechaza(() => Secop.parsearPerfil({ dias: "3" }, { amplio: false }));
+    rechaza(() => Secop.parsearPerfil({ palabras: "x' OR 1=1", dias: "3" }, { amplio: true }));
+  });
+
   await t.test("el rango de presupuesto debe ser coherente", () => {
     rechaza(() => Secop.parsearPerfil({ palabras: "software", min: "5000000", max: "1000000" }));
   });
@@ -103,6 +111,16 @@ test("cláusulas SoQL", async (t) => {
     assert.ok(!clausula.includes("adjudicado ="));
   });
 
+  await t.test("sin palabras ni códigos no queda ninguna condición de alcance vacía", () => {
+    const perfil = Secop.parsearPerfil({ dias: "3", min: "50000000" }, { amplio: true });
+    const clausula = Secop.clausulaOportunidades(perfil, desde, hoy);
+    assert.ok(!clausula.includes("()") && !clausula.includes("like '%") && !clausula.includes("V1."));
+    for (const fragmento of ["estado_de_apertura_del_proceso = 'Abierto'", "adjudicado = 'No'", "precio_base >= 50000000", "not in"]) {
+      assert.ok(clausula.includes(fragmento), `falta: ${fragmento}`);
+    }
+    assert.ok(!/AND\s*(AND|$)/.test(clausula));
+  });
+
   await t.test("el filtro competitivo se puede desactivar", () => {
     const perfil = Secop.parsearPerfil({ codigos: "8011", competitivos: "0" });
     assert.equal(perfil.competitivos, false);
@@ -111,6 +129,13 @@ test("cláusulas SoQL", async (t) => {
 });
 
 test("normalizarProceso", async (t) => {
+  await t.test("la ciudad y el departamento “No Definido” de la fuente quedan vacíos", () => {
+    const p = Secop.normalizarProceso({ id_del_proceso: "CO1.REQ.1", ciudad_entidad: "No Definido", departamento_entidad: "Distrito Capital de Bogotá" });
+    assert.equal(p.ciudad, null);
+    assert.equal(p.departamento, "Distrito Capital de Bogotá");
+    assert.equal(Secop.normalizarProceso({ id_del_proceso: "CO1.REQ.2" }).ciudad, null);
+  });
+
   await t.test("la url acepta objeto o texto, pero solo https", () => {
     const base = { id_del_proceso: "CO1.REQ.1" };
     const casos = [

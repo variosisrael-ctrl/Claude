@@ -44,7 +44,7 @@ async function principal(env = process.env) {
 
   const { estado, resumen } = await ejecutar({
     busquedas, estado: leerEstado(), cliente: Secop.crearCliente(), enviar,
-    appUrl: env.ALERTAS_APP_URL || "", enviarTodo: env.ALERTAS_ENVIAR_TODO === "1", simulacion,
+    appUrl: env.ALERTAS_APP_URL || "", enviarTodo: env.ALERTAS_ENVIAR_TODO === "1", manual, simulacion,
     registrar: (texto) => console.log(simulacion ? texto : `::warning::${texto}`),
   });
 
