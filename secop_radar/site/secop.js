@@ -114,7 +114,8 @@
   }
 
   /** Valida los filtros del usuario. Lanza ErrorDeValidacion si algo no sirve. */
-  function parsearPerfil(params) {
+  /** `amplio` permite un perfil sin palabras ni códigos (todo el mercado): lo usa el resumen diario de las alertas. */
+  function parsearPerfil(params, { amplio = false } = {}) {
     const perfil = {
       palabras: normalizarPalabras(params.palabras),
       codigos: normalizarCodigos(params.codigos),
@@ -125,7 +126,7 @@
       competitivos: params.competitivos !== "0",
       abiertos: params.abiertos !== "0",
     };
-    if (!perfil.palabras.length && !perfil.codigos.length) {
+    if (!amplio && !perfil.palabras.length && !perfil.codigos.length) {
       throw new ErrorDeValidacion("Indica al menos una palabra clave o un código UNSPSC.");
     }
     if (perfil.min !== null && perfil.max !== null && perfil.min > perfil.max) {
@@ -170,7 +171,7 @@
         `upper(nombre_del_procedimiento) like ${patron} OR upper(descripci_n_del_procedimiento) like ${patron}`
       );
     }
-    const condiciones = ["(" + alcance.map((parte) => `(${parte})`).join(" OR ") + ")"];
+    const condiciones = alcance.length ? ["(" + alcance.map((parte) => `(${parte})`).join(" OR ") + ")"] : [];
     if (perfil.competitivos) condiciones.push(condicionCompetitiva());
     if (perfil.min !== null) condiciones.push(`precio_base >= ${perfil.min}`);
     if (perfil.max !== null) condiciones.push(`precio_base <= ${perfil.max}`);
@@ -246,8 +247,8 @@
       descripcion: fila.descripci_n_del_procedimiento || "",
       entidad: fila.entidad ?? null,
       nit_entidad: fila.nit_entidad ?? null,
-      ciudad: fila.ciudad_entidad ?? null,
-      departamento: fila.departamento_entidad ?? null,
+      ciudad: dato(fila.ciudad_entidad),
+      departamento: dato(fila.departamento_entidad),
       publicado: soloDia(fila.fecha_de_publicacion_del),
       cierre: soloDia(fila.fecha_de_recepcion_de),
       presupuesto: numero(fila.precio_base),
@@ -393,8 +394,8 @@
       return datos;
     }
 
-    async function buscarOportunidades(params) {
-      const perfil = parsearPerfil(params);
+    async function buscarOportunidades(params, opciones) {
+      const perfil = parsearPerfil(params, opciones);
       const hoy = new Date(ahora());
       const desde = new Date(hoy.getTime() - perfil.dias * MS_POR_DIA);
       const filas = await consultar(URL_PROCESOS, {

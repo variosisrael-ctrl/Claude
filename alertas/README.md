@@ -1,6 +1,6 @@
 # Alertas por Telegram
 
-Dos veces al día (7:00 a. m. y 5:00 p. m., hora de Colombia) GitHub busca en SECOP II los procesos **nuevos y todavía abiertos** que coinciden con las búsquedas de tu equipo y los manda a un chat o grupo de Telegram. Cada aviso trae la entidad, el presupuesto, la fecha de cierre, el porcentaje de coincidencia y el enlace al proceso.
+Dos veces al día (7:00 a. m. y 5:00 p. m., hora de Colombia) GitHub busca en SECOP II los procesos **nuevos y todavía abiertos** que coinciden con las búsquedas de tu equipo y los manda a un chat o grupo de Telegram. Cada aviso trae la entidad, el presupuesto, la fecha de cierre, el porcentaje de coincidencia y el enlace al proceso. Además puedes recibir cada mañana un **resumen de todo el país** (ver más abajo) para estar atento a todo tipo de proceso sin recibir cientos de avisos.
 
 No hay servidor que mantener: lo ejecuta GitHub Actions con el flujo `.github/workflows/alertas.yml`. Solo tienes que crear un bot y guardar tres datos como secretos del repositorio.
 
@@ -18,7 +18,7 @@ No hay servidor que mantener: lo ejecuta GitHub Actions con el flujo `.github/wo
 
 **Para ti solo:** abre tu bot en Telegram y envíale cualquier mensaje (por ejemplo «hola»).
 
-**Para el equipo (recomendado):** crea un grupo, agrega al bot como miembro y escribe un mensaje en el grupo. Si el bot no «ve» los mensajes del grupo no importa: solo necesita poder *enviar*.
+**Para el equipo (recomendado):** crea un grupo, agrega al bot como miembro y escribe en el grupo `/start@` seguido del usuario del bot (por ejemplo `/start@radar_secop_miempresa_bot`). Los bots no ven los mensajes normales de un grupo, pero sí los comandos dirigidos a ellos; sin ese mensaje la respuesta del paso siguiente sale vacía.
 
 Luego abre esta dirección en el navegador, cambiando `TU_TOKEN` por el token del paso 1:
 
@@ -63,13 +63,39 @@ Campos de cada búsqueda:
 | `dias` | Ventana de publicación hacia atrás: `"15"` mira los procesos publicados en los últimos 15 días. |
 | `minimo` | Coincidencia mínima (0 a 100) para que un proceso se avise. Por defecto 40. |
 
+### Resumen diario de todo el país
+
+Si quieres estar atento a *todo* tipo de proceso, no tiene sentido recibir un aviso por cada uno: en SECOP II se publican unos 270 procesos competitivos al día. Para eso existe el **resumen**: una búsqueda sin palabras clave que, cada mañana, manda un solo mensaje con cuántos procesos nuevos hubo, cómo se reparten por modalidad y los de mayor presupuesto, cada uno con su enlace.
+
+En la página, deja marcada la casilla **Incluir un resumen diario de todo el país** antes de pulsar «Copiar para alertas de Telegram». Si prefieres escribirlo a mano, es una entrada más de la lista:
+
+```json
+{"nombre":"Resumen nacional","resumen":true,"departamento":"","min":"","max":"","competitivos":"1","dias":"3","top":15}
+```
+
+| Campo | Significado |
+|---|---|
+| `resumen` | Debe ser `true`. Con eso no se piden palabras clave ni códigos. |
+| `top` | Cuántos procesos detalla el mensaje, de 1 a 30 (por defecto 15), de mayor a menor presupuesto. |
+| `min`, `max`, `departamento` | Opcionales: para resumir solo lo que supere un presupuesto, o de una región. Por ejemplo `"min":"100000000"` deja fuera lo menor a 100 millones. |
+| `dias` | Hasta cuántos días atrás mira lo publicado (por defecto 3). Cubre fines de semana y el retraso con que SECOP II publica sus datos. |
+
+Cómo se comporta:
+
+- **Sale una vez al día**, en la ejecución de las 7:00 a. m. (hora de Colombia). La de la tarde no lo manda, pero lo publicado en la tarde entra en el resumen del día siguiente. Una ejecución manual desde Actions siempre lo manda.
+- **No repite procesos**: cada resumen incluye solo lo que no estuvo en los anteriores. Si no hay nada nuevo, no manda nada.
+- **El primer resumen sí se envía** (a diferencia de las búsquedas por tema, que la primera vez se siembran en silencio), con lo publicado en los últimos `dias` días.
+- Puedes tener un resumen nacional y otros con filtros (por ejemplo uno por departamento), siempre que cada uno tenga un nombre distinto.
+- Si hay más de 1.000 procesos en la ventana, el mensaje lo avisa: la consulta tiene un tope y el resumen puede estar incompleto. Estrecha `dias` o agrega un presupuesto mínimo.
+- El resumen cuenta como una de las 20 búsquedas permitidas.
+
 Se admiten hasta 20 búsquedas. Si más adelante cambias, agregas o quitas búsquedas, vuelve a copiar el texto y **reemplaza** el valor del secreto (GitHub no permite ver un secreto, solo reemplazarlo).
 
 ### 5. Probar
 
 En el repositorio ve a **Actions → Alertas de Telegram → Run workflow**.
 
-- La **primera ejecución** manda un mensaje de bienvenida y «siembra» en silencio lo que ya estaba abierto, para no inundar el chat con decenas de procesos antiguos. A partir de la siguiente solo se avisan los nuevos.
+- La **primera ejecución** manda un mensaje de bienvenida y «siembra» en silencio lo que ya estaba abierto en las búsquedas por tema, para no inundar el chat con decenas de procesos antiguos. A partir de la siguiente solo se avisan los nuevos. Si configuraste un resumen diario, también lo manda en esa primera ejecución cuando es manual o es la de la mañana.
 - Si quieres ver avisos reales de inmediato, ejecuta el flujo marcando **Avisar también los procesos que ya están abiertos**. Con eso llegan los que hoy coinciden (hasta 20 por búsqueda y por ejecución).
 - Si falta algún secreto, una ejecución manual falla con un mensaje que lo nombra, y una ejecución programada solo deja una advertencia.
 

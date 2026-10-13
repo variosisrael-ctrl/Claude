@@ -15,6 +15,10 @@ const MAXIMO_POR_MENSAJE = 8;
 const DIAS_MEMORIA = 120; // cuánto se recuerda un proceso ya avisado
 const MINIMO_POR_DEFECTO = 40;
 const DIAS_POR_DEFECTO = "15";
+const DIAS_RESUMEN_POR_DEFECTO = "3"; // ventana del resumen: cubre fines de semana y el retraso con que SECOP II publica sus datos
+const TOP_RESUMEN_POR_DEFECTO = 15;
+const TOP_RESUMEN_MAXIMO = 30;
+const HORA_RESUMEN_HASTA = 12; // el resumen sale en la ejecución de la mañana (7:00 en Colombia), no en la de la tarde
 
 class ErrorDeAlertas extends Error {
   constructor(mensaje) {
@@ -48,22 +52,31 @@ function leerBusquedas(texto) {
     if (!nombre) throw new ErrorDeAlertas(`La búsqueda #${i + 1} no tiene nombre.`);
     if (nombres.has(clavePorNombre(nombre))) throw new ErrorDeAlertas(`La búsqueda #${i + 1} repite un nombre ya usado.`);
     nombres.add(clavePorNombre(nombre));
+    const resumen = b.resumen === true;
     const params = {
       palabras: String(b.palabras ?? ""), codigos: String(b.codigos ?? ""), departamento: String(b.departamento ?? ""),
-      min: String(b.min ?? ""), max: String(b.max ?? ""), dias: String(b.dias ?? DIAS_POR_DEFECTO),
+      min: String(b.min ?? ""), max: String(b.max ?? ""), dias: String(b.dias ?? (resumen ? DIAS_RESUMEN_POR_DEFECTO : DIAS_POR_DEFECTO)),
       competitivos: String(b.competitivos ?? "1"), abiertos: "1",
     };
-    if (!params.palabras.trim() && !params.codigos.trim()) {
+    if (!resumen && !params.palabras.trim() && !params.codigos.trim()) {
       throw new ErrorDeAlertas(`La búsqueda #${i + 1} no es válida: Indica al menos una palabra clave o un código UNSPSC.`);
     }
     try {
-      Secop.parsearPerfil(params); // reutiliza las mismas validaciones que la página
+      Secop.parsearPerfil(params, { amplio: resumen }); // reutiliza las mismas validaciones que la página
     } catch {
       // El mensaje de la validación repite lo escrito (p. ej. la palabra inválida) y los registros de Actions son públicos.
       throw new ErrorDeAlertas(
         `La búsqueda #${i + 1} no es válida: revisa que las palabras clave (letras, números, espacios y guiones), ` +
           "los códigos UNSPSC (4 a 8 dígitos) y el presupuesto estén bien escritos."
       );
+    }
+    if (resumen) {
+      // El resumen no puntúa por coincidencia: muestra los procesos nuevos de mayor presupuesto.
+      const top = b.top === undefined ? TOP_RESUMEN_POR_DEFECTO : Number(b.top);
+      if (!Number.isInteger(top) || top < 1 || top > TOP_RESUMEN_MAXIMO) {
+        throw new ErrorDeAlertas(`La búsqueda #${i + 1} tiene un "top" fuera de 1 a ${TOP_RESUMEN_MAXIMO}.`);
+      }
+      return { nombre, params, minimo: 0, resumen: true, top };
     }
     const minimo = b.minimo === undefined ? MINIMO_POR_DEFECTO : Number(b.minimo);
     if (!Number.isFinite(minimo) || minimo < 0 || minimo > 100) {
@@ -90,14 +103,14 @@ function textoCierre(cierre, hoy) {
   return `cierra en ${dias} días (${formatoFecha.format(new Date(cierre + "T00:00:00Z"))})`;
 }
 
-function bloqueProceso(p, numero, hoy) {
+function bloqueProceso(p, numero, hoy, { coincidencia = true } = {}) {
   const lugar = [p.ciudad, p.departamento].filter(Boolean).join(", ");
   const enlace = p.url ? `\n<a href="${escaparAtributo(p.url)}">Ver en SECOP II</a>` : "";
   return (
     `${numero}. <b>${escaparHTML(recortar(p.nombre, 140))}</b>\n` +
     `${escaparHTML(p.entidad || "Entidad no informada")}${lugar ? " · " + escaparHTML(lugar) : ""}\n` +
     `${escaparHTML(dinero(p.presupuesto))} · ${escaparHTML(p.modalidad || "modalidad no informada")}\n` +
-    `${escaparHTML(textoCierre(p.cierre, hoy))} · coincidencia ${p.puntaje} %${enlace}`
+    `${escaparHTML(textoCierre(p.cierre, hoy))}${coincidencia ? ` · coincidencia ${p.puntaje} %` : ""}${enlace}`
   );
 }
 
@@ -111,26 +124,18 @@ function enlaceDeLaApp(appUrl, busqueda) {
   return `${appUrl.replace(/[?#].*$/, "")}?${parametros}`;
 }
 
-/** Arma los mensajes (cada uno por debajo del límite de Telegram) para los procesos nuevos de una búsqueda. */
-function formatearMensajes(busqueda, procesos, { hoy, appUrl, limite = LIMITE_MENSAJE, porMensaje = MAXIMO_POR_MENSAJE } = {}) {
-  const detallados = procesos.slice(0, MAXIMO_POR_BUSQUEDA);
-  const restantes = procesos.length - detallados.length;
-  const titulo =
-    `<b>Radar SECOP: ${procesos.length} ${procesos.length === 1 ? "proceso nuevo" : "procesos nuevos"}</b>\n` +
-    `Búsqueda: ${escaparHTML(busqueda.nombre)}`;
-  const enlaceApp = enlaceDeLaApp(appUrl, busqueda);
-  const pie =
-    (restantes > 0 ? `\nY ${restantes} más.` : "") +
-    (enlaceApp ? `\n<a href="${escaparAtributo(enlaceApp)}">Abrir esta búsqueda en el Radar</a>` : "");
-
+/**
+ * Reparte los bloques en mensajes que no pasen el límite de Telegram. El título va en el primero, `continuacion`
+ * encabeza los siguientes y el pie va al final (en un mensaje aparte si ya no cabe).
+ */
+function empaquetar({ titulo, continuacion, bloques, pie, limite, porMensaje }) {
   const mensajes = [];
   let actual = titulo;
   let enActual = 0;
-  detallados.forEach((proceso, i) => {
-    const bloque = bloqueProceso(proceso, i + 1, hoy);
+  bloques.forEach((bloque) => {
     if (enActual > 0 && (actual.length + bloque.length + 2 > limite || enActual >= porMensaje)) {
       mensajes.push(actual);
-      actual = `<b>Radar SECOP</b> (continuación)\nBúsqueda: ${escaparHTML(busqueda.nombre)}`;
+      actual = continuacion;
       enActual = 0;
     }
     actual += `\n\n${bloque}`;
@@ -139,6 +144,65 @@ function formatearMensajes(busqueda, procesos, { hoy, appUrl, limite = LIMITE_ME
   mensajes.push(actual + (actual.length + pie.length <= limite ? pie : ""));
   if (actual.length + pie.length > limite && pie) mensajes.push(pie.trim());
   return mensajes;
+}
+
+/** Arma los mensajes (cada uno por debajo del límite de Telegram) para los procesos nuevos de una búsqueda. */
+function formatearMensajes(busqueda, procesos, { hoy, appUrl, limite = LIMITE_MENSAJE, porMensaje = MAXIMO_POR_MENSAJE } = {}) {
+  const detallados = procesos.slice(0, MAXIMO_POR_BUSQUEDA);
+  const restantes = procesos.length - detallados.length;
+  const enlaceApp = enlaceDeLaApp(appUrl, busqueda);
+  return empaquetar({
+    titulo:
+      `<b>Radar SECOP: ${procesos.length} ${procesos.length === 1 ? "proceso nuevo" : "procesos nuevos"}</b>\n` +
+      `Búsqueda: ${escaparHTML(busqueda.nombre)}`,
+    continuacion: `<b>Radar SECOP</b> (continuación)\nBúsqueda: ${escaparHTML(busqueda.nombre)}`,
+    bloques: detallados.map((proceso, i) => bloqueProceso(proceso, i + 1, hoy)),
+    pie:
+      (restantes > 0 ? `\nY ${restantes} más.` : "") +
+      (enlaceApp ? `\n<a href="${escaparAtributo(enlaceApp)}">Abrir esta búsqueda en el Radar</a>` : ""),
+    limite,
+    porMensaje,
+  });
+}
+
+/**
+ * Resumen diario: cuántos procesos nuevos hay, cómo se reparten por modalidad y los de mayor presupuesto.
+ * Sirve para estar atento a todo el mercado sin recibir un aviso por proceso.
+ */
+function formatearResumen(busqueda, procesos, { hoy, appUrl, limiteAlcanzado = false, limite = LIMITE_MENSAJE, porMensaje = MAXIMO_POR_MENSAJE } = {}) {
+  const porPresupuesto = [...procesos].sort((a, b) => (b.presupuesto ?? -1) - (a.presupuesto ?? -1));
+  const destacados = porPresupuesto.slice(0, busqueda.top ?? TOP_RESUMEN_POR_DEFECTO);
+
+  const porModalidad = new Map();
+  for (const p of procesos) {
+    const modalidad = p.modalidad || "Modalidad no informada";
+    porModalidad.set(modalidad, (porModalidad.get(modalidad) ?? 0) + 1);
+  }
+  const modalidades = [...porModalidad.entries()].sort((a, b) => b[1] - a[1]);
+  const lineaModalidades = modalidades.slice(0, 5).map(([nombre, n]) => `${escaparHTML(nombre)}: ${n}`).join(" · ") +
+    (modalidades.length > 5 ? ` · otras: ${modalidades.slice(5).reduce((suma, [, n]) => suma + n, 0)}` : "");
+
+  const filtros = [
+    busqueda.params.departamento && `departamento: ${busqueda.params.departamento}`,
+    busqueda.params.min && `desde ${dinero(Number(busqueda.params.min))}`,
+    busqueda.params.max && `hasta ${dinero(Number(busqueda.params.max))}`,
+  ].filter(Boolean);
+  const encabezado =
+    `<b>Radar SECOP: resumen de ${procesos.length} ${procesos.length === 1 ? "proceso nuevo" : "procesos nuevos"}</b>\n` +
+    `${escaparHTML(busqueda.nombre)}${filtros.length ? ` (${escaparHTML(filtros.join(", "))})` : ""}\n` +
+    `${lineaModalidades}\n` +
+    `Los ${destacados.length === 1 ? "de mayor presupuesto" : `${destacados.length} de mayor presupuesto`}:` +
+    (limiteAlcanzado ? "\n(Había más procesos de los que se pueden revisar de una vez; el resumen puede estar incompleto.)" : "");
+
+  const apertura = appUrl ? `\n<a href="${escaparAtributo(appUrl.replace(/[?#].*$/, ""))}">Buscar en el Radar</a>` : "";
+  return empaquetar({
+    titulo: encabezado,
+    continuacion: `<b>Radar SECOP</b> (continuación del resumen)`,
+    bloques: destacados.map((proceso, i) => bloqueProceso(proceso, i + 1, hoy, { coincidencia: false })),
+    pie: apertura,
+    limite,
+    porMensaje,
+  });
 }
 
 // --- Telegram -------------------------------------------------------------------
@@ -169,6 +233,10 @@ function crearEnviadorTelegram({ token, chatId, base = "https://api.telegram.org
 
 // --- Ejecución -------------------------------------------------------------------
 
+const formatoHoraBogota = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hourCycle: "h23", timeZone: "America/Bogota" });
+/** Hora (0 a 23) en Colombia, sin importar la zona horaria del servidor. */
+const horaEnBogota = (fecha) => Number(formatoHoraBogota.format(fecha));
+
 /** Quita del estado lo que ya no hace falta recordar. */
 function limpiarEstado(estado, hoyIso) {
   const limite = Date.parse(hoyIso) - DIAS_MEMORIA * 86_400_000;
@@ -183,10 +251,13 @@ function limpiarEstado(estado, hoyIso) {
  * Corre todas las búsquedas. Devuelve el estado nuevo y un resumen con conteos (nunca nombres).
  * - Una búsqueda sin historial se "siembra" en silencio para no inundar el chat, salvo `enviarTodo`.
  * - Un proceso se marca como avisado solo si el mensaje se envió.
+ * - Una búsqueda de tipo resumen sale una vez al día (en la ejecución de la mañana, o en cualquiera si es manual) y
+ *   cubre los procesos nuevos desde el resumen anterior; su primer resumen no se siembra en silencio.
  */
-async function ejecutar({ busquedas, estado, cliente, enviar, ahora = Date.now, appUrl = "", enviarTodo = false, simulacion = false, registrar = () => {} }) {
+async function ejecutar({ busquedas, estado, cliente, enviar, ahora = Date.now, appUrl = "", enviarTodo = false, manual = false, simulacion = false, registrar = () => {} }) {
   const hoy = new Date(ahora());
   const hoyIso = Secop.fechaIso(hoy);
+  const tocaResumen = manual || enviarTodo || horaEnBogota(hoy) < HORA_RESUMEN_HASTA;
   const nuevoEstado = { version: 1, vistos: { ...(estado?.vistos ?? {}) }, activadas: estado?.activadas === true };
   const resumen = { busquedas: busquedas.length, nuevos: 0, mensajes: 0, sembradas: 0, fallos_consulta: 0, fallos_telegram: 0 };
 
@@ -195,7 +266,8 @@ async function ejecutar({ busquedas, estado, cliente, enviar, ahora = Date.now, 
       await enviar(
         `<b>Radar SECOP: alertas activadas</b>\nVigilo ${busquedas.length} ${busquedas.length === 1 ? "búsqueda" : "búsquedas"}: ` +
           `${busquedas.map((b) => escaparHTML(b.nombre)).join(", ")}.\n` +
-          "Te aviso cuando aparezcan procesos nuevos. Los que ya están abiertos hoy no se reenvían."
+          "Te aviso cuando aparezcan procesos nuevos. Los que ya están abiertos hoy no se reenvían." +
+          (busquedas.some((b) => b.resumen) ? " Cada mañana recibirás además un resumen de los procesos nuevos del país." : "")
       );
       nuevoEstado.activadas = true;
       resumen.mensajes += 1;
@@ -206,10 +278,14 @@ async function ejecutar({ busquedas, estado, cliente, enviar, ahora = Date.now, 
   }
 
   for (const busqueda of busquedas) {
+    if (busqueda.resumen && !tocaResumen) continue; // el resumen de la mañana cubre también lo publicado en la tarde
     const clave = clavePorNombre(busqueda.nombre);
     let resultados;
+    let limiteAlcanzado = false;
     try {
-      resultados = (await cliente.buscarOportunidades(busqueda.params)).resultados;
+      const respuesta = await cliente.buscarOportunidades(busqueda.params, { amplio: Boolean(busqueda.resumen) });
+      resultados = respuesta.resultados;
+      limiteAlcanzado = Boolean(respuesta.limite_alcanzado);
     } catch (error) {
       registrar(`Una búsqueda falló al consultar SECOP II: ${error.message}`);
       resumen.fallos_consulta += 1;
@@ -223,7 +299,7 @@ async function ejecutar({ busquedas, estado, cliente, enviar, ahora = Date.now, 
       .filter((p) => !(p.id in vistos))
       .sort((a, b) => (a.cierre || "9999").localeCompare(b.cierre || "9999") || b.puntaje - a.puntaje);
 
-    if (esNueva && !enviarTodo) {
+    if (esNueva && !enviarTodo && !busqueda.resumen) {
       nuevos.forEach((p) => { vistos[p.id] = hoyIso; });
       resumen.sembradas += 1;
       continue;
@@ -231,7 +307,9 @@ async function ejecutar({ busquedas, estado, cliente, enviar, ahora = Date.now, 
     if (!nuevos.length) continue;
 
     try {
-      const mensajes = formatearMensajes(busqueda, nuevos, { hoy, appUrl });
+      const mensajes = busqueda.resumen
+        ? formatearResumen(busqueda, nuevos, { hoy, appUrl, limiteAlcanzado })
+        : formatearMensajes(busqueda, nuevos, { hoy, appUrl });
       if (simulacion) {
         mensajes.forEach((m) => registrar(m));
       } else {
@@ -252,5 +330,5 @@ async function ejecutar({ busquedas, estado, cliente, enviar, ahora = Date.now, 
 
 module.exports = {
   ErrorDeAlertas, MINIMO_POR_DEFECTO, LIMITE_MENSAJE,
-  leerBusquedas, formatearMensajes, enlaceDeLaApp, textoCierre, crearEnviadorTelegram, ejecutar, escaparHTML,
+  leerBusquedas, formatearMensajes, formatearResumen, horaEnBogota, enlaceDeLaApp, textoCierre, crearEnviadorTelegram, ejecutar, escaparHTML,
 };

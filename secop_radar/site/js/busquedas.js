@@ -80,18 +80,20 @@ async function copiarEnlace() {
 
 /** Copia el JSON para el secreto ALERTAS_BUSQUEDAS de GitHub con las búsquedas guardadas (o la actual). */
 async function copiarParaAlertas() {
+  const resumen = $("#incluir-resumen").checked;
   let lista = busquedasGuardadas();
   if (!lista.length) {
     const perfil = perfilDelFormulario();
-    if (!perfilTieneAlcance(perfil)) return mostrarEstadoBusquedas("Guarda al menos una búsqueda (o escribe palabras clave) para generar la configuración.");
-    lista = [{ nombre: "Mi búsqueda", perfil }];
+    if (perfilTieneAlcance(perfil)) lista = [{ nombre: "Mi búsqueda", perfil }];
+    else if (!resumen) return mostrarEstadoBusquedas("Guarda al menos una búsqueda (o escribe palabras clave) para generar la configuración.");
   }
-  const texto = Analisis.aConfiguracionAlertas(lista);
+  const texto = Analisis.aConfiguracionAlertas(lista, { resumen });
+  const total = lista.length + (resumen ? 1 : 0);
   const campo = $("#enlace-compartir");
   try {
     await navigator.clipboard.writeText(texto);
     campo.hidden = true;
-    mostrarEstadoBusquedas(`Configuración de ${plural(lista.length, "búsqueda", "búsquedas")} copiada. Pégala en el secreto ALERTAS_BUSQUEDAS de GitHub.`);
+    mostrarEstadoBusquedas(`Configuración de ${plural(total, "búsqueda", "búsquedas")} copiada. Pégala en el secreto ALERTAS_BUSQUEDAS de GitHub.`);
   } catch {
     campo.hidden = false;
     campo.value = texto;

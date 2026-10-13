@@ -45,7 +45,7 @@ Cada persona del equipo usa **su propia clave** de la API de Anthropic. La clave
 - **Privacidad.** El PDF del pliego y el perfil de tu empresa viajan a Anthropic cuando usas la IA. Esos mensajes se rigen por los términos de Anthropic para la API. La IA puede equivocarse: confirma cada punto en el pliego.
 
 ### Alertas por Telegram
-Dos veces al día (7:00 a. m. y 5:00 p. m., hora de Colombia) GitHub busca procesos nuevos con las búsquedas del equipo y los manda a un chat o grupo de Telegram. Se configura una vez; la guía paso a paso está en [`../alertas/README.md`](../alertas/README.md).
+Dos veces al día (7:00 a. m. y 5:00 p. m., hora de Colombia) GitHub busca procesos nuevos con las búsquedas del equipo y los manda a un chat o grupo de Telegram. Además de las búsquedas por tema, puede mandar cada mañana un **resumen de todo el país** (cuántos procesos nuevos hubo y los de mayor presupuesto) para estar atento a todo sin recibir un aviso por proceso. Se configura una vez; la guía paso a paso está en [`../alertas/README.md`](../alertas/README.md).
 
 ## Cómo se calcula el porcentaje de coincidencia
 

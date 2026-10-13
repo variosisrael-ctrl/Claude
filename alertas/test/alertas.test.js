@@ -25,6 +25,13 @@ const clienteFalso = (porPalabras) => ({
   },
 });
 
+const resumenBusqueda = (extra = {}) => ({
+  nombre: "Resumen nacional", params: { palabras: "", codigos: "", departamento: "", min: "", max: "", dias: "3", competitivos: "1", abiertos: "1" },
+  minimo: 0, resumen: true, top: 15, ...extra,
+});
+const MANANA = Date.UTC(2026, 9, 13, 12); // 7:00 en Bogotá: la ejecución de la mañana
+const TARDE = Date.UTC(2026, 9, 13, 22); // 17:00 en Bogotá
+
 const enviadorFalso = () => {
   const mensajes = [];
   return { mensajes, enviar: async (texto) => { mensajes.push(texto); } };
@@ -42,6 +49,27 @@ test("configuración de búsquedas", async (t) => {
     const [b] = Alertas.leerBusquedas(JSON.stringify([{ nombre: "A", palabras: "software", min: 1000000, max: 9000000, minimo: 0 }]));
     assert.equal(b.params.min, "1000000");
     assert.equal(b.minimo, 0);
+  });
+
+  await t.test("un resumen diario no necesita palabras ni códigos", () => {
+    const [b] = Alertas.leerBusquedas(JSON.stringify([{ nombre: "Resumen nacional", resumen: true }]));
+    assert.equal(b.resumen, true);
+    assert.equal(b.top, 15);
+    assert.equal(b.minimo, 0);
+    assert.deepEqual(b.params, { palabras: "", codigos: "", departamento: "", min: "", max: "", dias: "3", competitivos: "1", abiertos: "1" });
+    const [c] = Alertas.leerBusquedas(JSON.stringify([{ nombre: "Antioquia", resumen: true, departamento: "Antioquia", min: 50000000, top: 10, dias: 2 }]));
+    assert.deepEqual([c.params.departamento, c.params.min, c.params.dias, c.top], ["Antioquia", "50000000", "2", 10]);
+  });
+
+  await t.test("el resumen valida sus datos igual que una búsqueda", () => {
+    for (const extra of [{ top: 0 }, { top: 31 }, { top: 2.5 }, { departamento: "x' OR 1=1" }, { min: 9, max: 1 }, { dias: 0 }]) {
+      assert.throws(() => Alertas.leerBusquedas(JSON.stringify([{ nombre: "R", resumen: true, ...extra }])), (error) => {
+        assert.ok(error instanceof Alertas.ErrorDeAlertas);
+        assert.ok(!error.message.includes("OR 1=1"));
+        return true;
+      });
+    }
+    assert.throws(() => Alertas.leerBusquedas(JSON.stringify([{ nombre: "A", resumen: "si" }])), /Indica al menos una palabra clave/, "solo resumen: true lo habilita");
   });
 
   await t.test("rechaza configuraciones inválidas sin repetir su contenido", () => {
@@ -98,6 +126,50 @@ test("mensajes", async (t) => {
     assert.ok(!todo.includes("21. <b>"));
     assert.ok(todo.includes("Y 10 más."));
     assert.ok(todo.includes("https://ejemplo.github.io/Claude/?palabras=mantenimiento&amp;codigos=8011"), "enlace a la búsqueda en la app");
+  });
+
+  await t.test("resumen: total, modalidades y los de mayor presupuesto sin “coincidencia”", () => {
+    const procesos = [
+      proceso("P1", { presupuesto: 10_000_000, modalidad: "Mínima cuantía" }),
+      proceso("P2", { presupuesto: 900_000_000, modalidad: "Licitación pública", nombre: "Obra <grande> & cara" }),
+      proceso("P3", { presupuesto: null, modalidad: "Mínima cuantía" }),
+      proceso("P4", { presupuesto: 300_000_000, modalidad: "Selección abreviada" }),
+    ];
+    const [mensaje] = Alertas.formatearResumen(resumenBusqueda({ top: 2 }), procesos, { hoy, appUrl: "https://x.github.io/Claude/?viejo=1" });
+    assert.ok(mensaje.startsWith("<b>Radar SECOP: resumen de 4 procesos nuevos</b>\nResumen nacional\n"));
+    assert.ok(mensaje.includes("Mínima cuantía: 2 · Licitación pública: 1 · Selección abreviada: 1"));
+    assert.ok(mensaje.includes("Los 2 de mayor presupuesto:"));
+    assert.ok(mensaje.indexOf("1. <b>Obra &lt;grande&gt; &amp; cara</b>") > 0, "el mayor presupuesto va primero y se escapa");
+    assert.ok(mensaje.indexOf("$ 900.000.000") < mensaje.indexOf("$ 300.000.000"));
+    assert.ok(!mensaje.includes("Proceso P1") && !mensaje.includes("Proceso P3"), "solo los 2 mayores");
+    assert.ok(!mensaje.includes("coincidencia"));
+    assert.ok(mensaje.includes('<a href="https://x.github.io/Claude/">Buscar en el Radar</a>'));
+  });
+
+  await t.test("resumen: muestra los filtros, sin presupuesto va al final y avisa si el límite de consulta se alcanzó", () => {
+    const b = resumenBusqueda({ params: { ...resumenBusqueda().params, departamento: "Antioquia", min: "50000000" } });
+    const [mensaje] = Alertas.formatearResumen(b, [proceso("P1", { presupuesto: null }), proceso("P2", { presupuesto: 5 })], { hoy, limiteAlcanzado: true });
+    assert.ok(mensaje.includes("Resumen nacional (departamento: Antioquia, desde $ 50.000.000)"));
+    assert.ok(mensaje.includes("puede estar incompleto"));
+    assert.ok(mensaje.indexOf("Proceso P2") < mensaje.indexOf("Proceso P1"));
+    assert.ok(mensaje.includes("presupuesto no informado"));
+    assert.ok(!mensaje.includes("Buscar en el Radar"), "sin dirección de la app no hay enlace");
+  });
+
+  await t.test("resumen: trocea sin pasar el límite de Telegram y con más de 5 modalidades suma las demás", () => {
+    const muchos = Array.from({ length: 30 }, (_, i) => proceso(`P${i}`, { nombre: "N".repeat(140), entidad: "E".repeat(200), presupuesto: 1000 + i, modalidad: `Modalidad ${i % 7}` }));
+    const mensajes = Alertas.formatearResumen(resumenBusqueda({ top: 30 }), muchos, { hoy, appUrl: "https://x.github.io/Claude/" });
+    assert.ok(mensajes.length >= 3);
+    for (const m of mensajes) assert.ok(m.length <= 4096, `un mensaje de ${m.length} caracteres no cabe en Telegram`);
+    assert.ok(mensajes[1].startsWith("<b>Radar SECOP</b> (continuación del resumen)"));
+    assert.match(mensajes[0], / · otras: \d+/);
+    assert.ok(mensajes.join("\n").includes("30. <b>"));
+  });
+
+  await t.test("horaEnBogota ignora la zona del servidor", () => {
+    assert.equal(Alertas.horaEnBogota(new Date(Date.UTC(2026, 9, 13, 12))), 7);
+    assert.equal(Alertas.horaEnBogota(new Date(Date.UTC(2026, 9, 13, 22))), 17);
+    assert.equal(Alertas.horaEnBogota(new Date(Date.UTC(2026, 9, 13, 5))), 0);
   });
 
   await t.test("enlaceDeLaApp usa el mismo formato que “Copiar enlace” y quita parámetros previos", () => {
@@ -249,6 +321,56 @@ test("ejecución de las alertas", async (t) => {
     assert.equal(estado.activadas, false);
   });
 
+  await t.test("resumen: sale en la mañana desde la primera vez (sin sembrar) y no repite lo ya resumido", async () => {
+    const { mensajes, enviar } = enviadorFalso();
+    const consultas = [];
+    const cliente = { buscarOportunidades: async (params, opciones) => { consultas.push({ params, opciones }); return { resultados: [proceso("P1", { presupuesto: 5e8 }), proceso("P2")], limite_alcanzado: false }; } };
+    const primera = await correr({ ahora: () => MANANA, busquedas: [resumenBusqueda()], estado: null, cliente, enviar });
+    assert.equal(mensajes.length, 2);
+    assert.match(mensajes[0], /alertas activadas/);
+    assert.match(mensajes[0], /Cada mañana recibirás además un resumen/);
+    assert.match(mensajes[1], /resumen de 2 procesos nuevos/);
+    assert.deepEqual(primera.resumen, { busquedas: 1, nuevos: 2, mensajes: 2, sembradas: 0, fallos_consulta: 0, fallos_telegram: 0 });
+    assert.deepEqual(consultas[0].opciones, { amplio: true }, "pide la consulta amplia");
+
+    const segunda = await correr({ ahora: () => MANANA + 864e5, busquedas: [resumenBusqueda()], estado: primera.estado, cliente, enviar });
+    assert.equal(mensajes.length, 2, "no repite procesos");
+    assert.equal(segunda.resumen.nuevos, 0);
+
+    const nuevoCliente = { buscarOportunidades: async () => ({ resultados: [proceso("P1"), proceso("P2"), proceso("P3", { presupuesto: 7e8 })] }) };
+    await correr({ ahora: () => MANANA + 2 * 864e5, busquedas: [resumenBusqueda()], estado: segunda.estado, cliente: nuevoCliente, enviar });
+    assert.equal(mensajes.length, 3);
+    assert.match(mensajes[2], /resumen de 1 proceso nuevo/);
+    assert.ok(mensajes[2].includes("Proceso P3"));
+  });
+
+  await t.test("resumen: en la ejecución de la tarde no sale ni consulta, pero las demás búsquedas siguen; si es manual sí sale", async () => {
+    const { mensajes, enviar } = enviadorFalso();
+    const consultas = [];
+    const cliente = { buscarOportunidades: async (params) => { consultas.push(params.palabras); return { resultados: params.palabras ? [proceso("P9")] : [proceso("R1")] }; } };
+    const base = { version: 1, activadas: true, vistos: { "mantenimiento ti": {} } };
+    const tarde = await correr({ ahora: () => TARDE, busquedas: [resumenBusqueda(), busqueda()], estado: base, cliente, enviar });
+    assert.deepEqual(consultas, ["mantenimiento"], "el resumen ni se consulta");
+    assert.equal(mensajes.length, 1);
+    assert.match(mensajes[0], /Mantenimiento TI/);
+    assert.ok(!("resumen nacional" in tarde.estado.vistos), "no toca el estado del resumen");
+
+    const manual = await correr({ ahora: () => TARDE, manual: true, busquedas: [resumenBusqueda()], estado: tarde.estado, cliente, enviar });
+    assert.equal(manual.resumen.nuevos, 1);
+    assert.match(mensajes.at(-1), /resumen de 1 proceso nuevo/);
+  });
+
+  await t.test("resumen: si Telegram falla no marca los procesos y se reintenta en la siguiente ejecución", async () => {
+    const cliente = { buscarOportunidades: async () => ({ resultados: [proceso("P1")] }) };
+    const base = { version: 1, activadas: true, vistos: {} };
+    const fallida = await correr({ ahora: () => MANANA, busquedas: [resumenBusqueda()], estado: base, cliente, enviar: async () => { throw new Alertas.ErrorDeAlertas("Telegram respondió 500"); } });
+    assert.equal(fallida.resumen.fallos_telegram, 1);
+    assert.deepEqual(fallida.estado.vistos["resumen nacional"], {});
+    const { mensajes, enviar } = enviadorFalso();
+    await correr({ ahora: () => MANANA, busquedas: [resumenBusqueda()], estado: fallida.estado, cliente, enviar });
+    assert.equal(mensajes.length, 1);
+  });
+
   await t.test("en simulación no envía nada y entrega los mensajes para revisarlos", async () => {
     const registros = [];
     const enviar = async () => { throw new Error("no debe enviar"); };
@@ -302,6 +424,26 @@ test("configuración generada por la página", async (t) => {
     assert.deepEqual(busquedas[0].params, { palabras: "mantenimiento, software", codigos: "8011", departamento: "Antioquia", min: "1000000", max: "", dias: "15", competitivos: "1", abiertos: "1" });
     assert.equal(busquedas[1].params.competitivos, "0", "respeta que no se limite a procesos competitivos");
     assert.equal(busquedas[0].minimo, 40);
+  });
+
+  await t.test("con resumen agrega la entrada del resumen diario y el motor la acepta", () => {
+    const busquedas = Alertas.leerBusquedas(Analisis.aConfiguracionAlertas(guardadas, { resumen: true }));
+    assert.equal(busquedas.length, 3);
+    assert.equal(busquedas[2].resumen, true);
+    assert.equal(busquedas[2].nombre, "Resumen nacional");
+    assert.equal(busquedas[2].params.dias, "3");
+    assert.ok(!Analisis.aConfiguracionAlertas(guardadas).includes("Resumen nacional"), "sin la casilla no se agrega");
+  });
+
+  await t.test("el resumen solo (sin búsquedas guardadas) también es válido", () => {
+    const [r] = Alertas.leerBusquedas(Analisis.aConfiguracionAlertas([], { resumen: true }));
+    assert.equal(r.resumen, true);
+  });
+
+  await t.test("el nombre del resumen no choca con una búsqueda guardada que se llame igual", () => {
+    const choque = [{ nombre: "resumen NACIONAL", perfil: { palabras: "software" } }];
+    const busquedas = Alertas.leerBusquedas(Analisis.aConfiguracionAlertas(choque, { resumen: true }));
+    assert.deepEqual(busquedas.map((b) => b.nombre), ["resumen NACIONAL", "Resumen nacional (resumen)"]);
   });
 
   await t.test("tolera campos ausentes del perfil guardado", () => {

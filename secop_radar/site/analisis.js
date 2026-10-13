@@ -246,21 +246,27 @@
   /**
    * Texto JSON para el secreto ALERTAS_BUSQUEDAS de GitHub (ver alertas/README.md), a partir de las búsquedas
    * guardadas: [{nombre, perfil: {palabras, codigos, ...}}]. Va en una sola línea para que GitHub lo enmascare bien.
+   * Con `resumen` agrega el resumen diario de todo el país (no lleva palabras clave).
    */
-  function aConfiguracionAlertas(busquedas) {
-    return JSON.stringify(
-      busquedas.map((b) => ({
-        nombre: b.nombre,
-        palabras: b.perfil.palabras || "",
-        codigos: b.perfil.codigos || "",
-        departamento: b.perfil.departamento || "",
-        min: b.perfil.min || "",
-        max: b.perfil.max || "",
-        competitivos: b.perfil.competitivos === "0" ? "0" : "1",
-        dias: "15",
-        minimo: 40,
-      }))
-    );
+  function aConfiguracionAlertas(busquedas, { resumen = false } = {}) {
+    const entradas = busquedas.map((b) => ({
+      nombre: b.nombre,
+      palabras: b.perfil.palabras || "",
+      codigos: b.perfil.codigos || "",
+      departamento: b.perfil.departamento || "",
+      min: b.perfil.min || "",
+      max: b.perfil.max || "",
+      competitivos: b.perfil.competitivos === "0" ? "0" : "1",
+      dias: "15",
+      minimo: 40,
+    }));
+    if (resumen) {
+      const usados = new Set(entradas.map((e) => e.nombre.trim().toLowerCase()));
+      let nombre = "Resumen nacional";
+      while (usados.has(nombre.toLowerCase())) nombre += " (resumen)";
+      entradas.push({ nombre, resumen: true, departamento: "", min: "", max: "", competitivos: "1", dias: "3", top: 15 });
+    }
+    return JSON.stringify(entradas);
   }
 
   return {
