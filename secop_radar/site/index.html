@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- Solo se permite conectarse a datos.gov.co y a la API de Anthropic: si algún día entrara un script ajeno,
        no podría enviar a otro sitio la clave de IA que guarda el navegador. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src https://www.datos.gov.co https://api.anthropic.com; object-src 'none'; base-uri 'none'; form-action 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src https://www.datos.gov.co https://api.anthropic.com https://api.github.com; object-src 'none'; base-uri 'none'; form-action 'self'">
   <title>Radar SECOP II</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -88,16 +88,23 @@
         <input id="enlace-compartir" class="enlace-compartir" readonly hidden aria-label="Enlace para compartir">
         <p id="estado-busquedas" class="ayuda" role="status"></p>
         <p class="ayuda">Se guardan en este navegador. Para compartir una búsqueda con tu equipo, copia su enlace.</p>
-        <label class="casilla">
-          <input id="incluir-resumen" type="checkbox" checked>
-          Incluir un resumen diario de todo el país
-          <span class="ayuda">Un mensaje cada mañana con los procesos nuevos de mayor presupuesto, sin tener que elegir palabras clave.</span>
-        </label>
         <div class="acciones">
-          <button type="button" class="boton" id="copiar-alertas">Copiar para alertas de Telegram</button>
+          <button type="button" class="boton primario-suave" id="crear-alerta-busqueda">Crear alerta con esta búsqueda</button>
         </div>
-        <p class="ayuda">Genera el texto que va en el secreto <code>ALERTAS_BUSQUEDAS</code> de GitHub para recibir avisos de procesos nuevos.
-          <a href="https://github.com/variosisrael-ctrl/Claude/blob/main/alertas/README.md" target="_blank" rel="noopener">Cómo activarlas</a>.</p>
+        <p class="ayuda">Te avisa por Telegram cuando aparezcan procesos nuevos que coincidan. Se administran en la pestaña «Mis alertas».</p>
+        <details id="avanzado-alertas">
+          <summary>Alertas sin token (avanzado)</summary>
+          <label class="casilla">
+            <input id="incluir-resumen" type="checkbox" checked>
+            Incluir un resumen diario de todo el país
+            <span class="ayuda">Un mensaje cada mañana con los procesos nuevos de mayor presupuesto, sin tener que elegir palabras clave.</span>
+          </label>
+          <div class="acciones">
+            <button type="button" class="boton" id="copiar-alertas">Copiar para alertas de Telegram</button>
+          </div>
+          <p class="ayuda">Genera el texto que va en el secreto <code>ALERTAS_BUSQUEDAS</code> de GitHub para recibir avisos de procesos nuevos.
+            <a href="https://github.com/variosisrael-ctrl/Claude/blob/main/alertas/README.md" target="_blank" rel="noopener">Cómo activarlas</a>.</p>
+        </details>
       </div>
     </aside>
 
@@ -107,6 +114,7 @@
         <button role="tab" data-tab="adjudicados" aria-selected="false">Adjudicados y ejecución</button>
         <button role="tab" data-tab="mercado" aria-selected="false">Mercado y competencia</button>
         <button role="tab" data-tab="seguimiento" aria-selected="false">Mi seguimiento <span id="conteo-seguimiento" class="conteo"></span></button>
+        <button role="tab" data-tab="alertas" aria-selected="false">Mis alertas</button>
         <button role="tab" data-tab="empresa" aria-selected="false">Empresa e IA</button>
       </nav>
 
@@ -114,6 +122,7 @@
       <div id="vista-adjudicados" class="vista" hidden></div>
       <div id="vista-mercado" class="vista" hidden></div>
       <div id="vista-seguimiento" class="vista" hidden></div>
+      <div id="vista-alertas" class="vista" hidden></div>
       <div id="vista-empresa" class="vista" hidden></div>
 
       <p class="aviso">
@@ -132,6 +141,8 @@
   </dialog>
 
   <script src="secop.js"></script>
+  <script src="config-alertas.js"></script>
+  <script src="gist.js"></script>
   <script src="analisis.js"></script>
   <script src="ia.js"></script>
   <script src="js/base.js"></script>
@@ -142,6 +153,7 @@
   <script src="js/seguimiento.js"></script>
   <script src="js/detalle.js"></script>
   <script src="js/busquedas.js"></script>
+  <script src="js/alertas.js"></script>
   <script src="js/empresa.js"></script>
   <script src="js/ia-ui.js"></script>
   <script src="js/inicio.js"></script>

@@ -44,8 +44,13 @@ Cada persona del equipo usa **su propia clave** de la API de Anthropic. La clave
 - **Costos.** Antes de cada análisis se muestra una estimación en dólares según el tamaño del PDF y el modelo elegido (precios de lista por millón de tokens: Opus 4 de entrada y 20 de salida, Sonnet 2 y 10, Haiku 0,1 y 0,5). El cobro real es el de tu cuenta de Anthropic.
 - **Privacidad.** El PDF del pliego y el perfil de tu empresa viajan a Anthropic cuando usas la IA. Esos mensajes se rigen por los términos de Anthropic para la API. La IA puede equivocarse: confirma cada punto en el pliego.
 
-### Alertas por Telegram
-Dos veces al día (7:00 a. m. y 5:00 p. m., hora de Colombia) GitHub busca procesos nuevos con las búsquedas del equipo y los manda a un chat o grupo de Telegram. Además de las búsquedas por tema, puede mandar cada mañana un **resumen de todo el país** (cuántos procesos nuevos hubo y los de mayor presupuesto) para estar atento a todo sin recibir un aviso por proceso. Se configura una vez; la guía paso a paso está en [`../alertas/README.md`](../alertas/README.md).
+### Alertas por Telegram (pestaña «Mis alertas»)
+Dos veces al día (7:00 a. m. y 5:00 p. m., hora de Colombia) GitHub busca procesos nuevos y los manda a un chat o grupo de Telegram. Las alertas se crean y administran en la propia página: cada una con sus palabras clave, códigos, departamento y presupuesto, hasta 50, que se pueden editar, pausar y borrar. Además:
+
+- un **resumen diario de todo el país** (cuántos procesos nuevos hubo y los de mayor presupuesto) para estar atento a todo sin recibir un aviso por proceso;
+- **avisos de cambios en los procesos que sigues**: nueva fecha de cierre, adjudicación o cancelación.
+
+Las alertas se guardan en un gist secreto de GitHub de la persona, con su propio token (solo con el permiso «gist»), que vive únicamente en su navegador. Se configura una vez; la guía paso a paso está en [`../alertas/README.md`](../alertas/README.md).
 
 ## Cómo se calcula el porcentaje de coincidencia
 
@@ -73,13 +78,13 @@ Viene activado por defecto. En contratación directa, régimen especial, solicit
 - **El análisis de mercado puede tardar** (20 segundos o más la primera vez) porque recorre millones de contratos. Las consultas repetidas se guardan en memoria 10 minutos mientras la página siga abierta.
 - **datos.gov.co puede limitar las consultas** hechas sin token de aplicación. Si aparece un error de la fuente, espera un momento y reintenta.
 - La lista de requisitos de la oferta es una **plantilla general**; cada proceso tiene los suyos en el pliego de condiciones.
-- **El equipo no comparte datos dentro de la página.** Las búsquedas guardadas y el seguimiento viven en cada navegador; se comparten con enlaces o con el CSV. Un tablero compartido con inicio de sesión requeriría una base de datos y es la mejora pendiente más grande.
+- **El equipo no comparte datos dentro de la página.** Las búsquedas guardadas y el seguimiento viven en cada navegador; se comparten con enlaces o con el CSV. Las alertas las administra una sola cuenta de GitHub (la de quien conectó su token). Un tablero compartido con inicio de sesión requeriría una base de datos y es la mejora pendiente más grande.
 
 Esta herramienta ayuda a encontrar y priorizar oportunidades; no presenta ofertas ni garantiza adjudicaciones.
 
 ## Seguridad
 
-La página lleva una política de contenido (CSP) que solo permite cargar scripts propios y conectarse a `www.datos.gov.co` y `api.anthropic.com`. Todo texto que viene de SECOP II se escapa antes de mostrarse, las exportaciones CSV neutralizan fórmulas (`=`, `+`, `-`, `@`) y no se sube nada de tu perfil a ningún servidor propio.
+La página lleva una política de contenido (CSP) que solo permite cargar scripts propios y conectarse a `www.datos.gov.co`, `api.anthropic.com` y `api.github.com` (las alertas). Todo texto que viene de SECOP II se escapa antes de mostrarse, las exportaciones CSV neutralizan fórmulas (`=`, `+`, `-`, `@`) y no se sube nada de tu perfil a ningún servidor propio.
 
 ## Pruebas
 
@@ -96,10 +101,11 @@ Son pruebas unitarias de la lógica (consultas, puntuación, índice de dificult
 - `site/secop.js`: validación de entradas, consultas SoQL, puntuación, cliente de datos.gov.co y mercado. Funciona en el navegador y en Node.
 - `site/analisis.js`: resumen de competencia, índice de dificultad, enmascarado de documentos y CSV.
 - `site/ia.js`: solicitudes a la API de Anthropic (pliego con citas, evaluación, triaje), costos y errores.
+- `site/config-alertas.js` y `site/gist.js`: configuración de las alertas (validación compartida con el programa de alertas) y su lectura y escritura en el gist de GitHub.
 - `site/js/`: la interfaz, un archivo por pestaña (`oportunidades.js`, `adjudicados.js`, `mercado.js`, `seguimiento.js`, `empresa.js`…).
 - `site/index.html`, `site/styles.css`: página y estilos.
 - `site/vendor/`: SDK oficial de Anthropic empaquetado en un solo archivo (se carga solo cuando se usa la IA). Para regenerarlo: `tools/anthropic-sdk/construir.sh [versión]`.
-- `test/`: pruebas de `secop.js`, `analisis.js` e `ia.js`.
+- `test/`: pruebas de `secop.js`, `analisis.js`, `ia.js`, `config-alertas.js` y `gist.js`.
 - `../alertas/`: motor de alertas por Telegram y su guía.
 - `../.github/workflows/`: `pages.yml` (publicación), `tests.yml` (pruebas) y `alertas.yml` (avisos programados).
 
@@ -107,4 +113,5 @@ Son pruebas unitarias de la lógica (consultas, puntuación, índice de dificult
 
 - Tablero compartido para el equipo con inicio de sesión (necesita una base de datos, por ejemplo Supabase).
 - Alertas por WhatsApp (requiere la API de WhatsApp Business de Meta o un proveedor como Twilio; ver `alertas/README.md`).
+- Buscar sin palabras clave (ver todos los procesos abiertos) y abrir un proceso pegando su número.
 - Búsqueda de códigos UNSPSC por nombre (hace falta cargar el catálogo oficial) y búsqueda de palabras sin distinguir tildes.

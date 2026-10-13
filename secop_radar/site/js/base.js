@@ -40,7 +40,7 @@ const estado = {
 };
 
 // Cada pantalla registra aquí lo que debe hacer al mostrarse y al iniciar la página.
-const Radar = { alMostrar: {}, iniciadores: [], alAbrirDetalle: [] };
+const Radar = { alMostrar: {}, iniciadores: [], alAbrirDetalle: [], alCambiarSeguimiento: [] };
 const registrarInicio = (funcion) => Radar.iniciadores.push(funcion);
 
 // --- Almacenamiento local -----------------------------------------------------

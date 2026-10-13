@@ -40,7 +40,7 @@
     "id_del_proceso", "id_del_portafolio", "referencia_del_proceso", "nombre_del_procedimiento",
     "descripci_n_del_procedimiento", "entidad", "nit_entidad", "ciudad_entidad", "departamento_entidad",
     "fecha_de_publicacion_del", "fecha_de_recepcion_de", "precio_base", "modalidad_de_contratacion",
-    "codigo_principal_de_categoria", "estado_resumen", "adjudicado", "fecha_adjudicacion",
+    "codigo_principal_de_categoria", "estado_resumen", "estado_del_procedimiento", "adjudicado", "fecha_adjudicacion",
     "valor_total_adjudicacion", "nombre_del_proveedor", "nit_del_proveedor_adjudicado", "urlproceso",
   ].join(",");
 
@@ -255,6 +255,7 @@
       modalidad: fila.modalidad_de_contratacion ?? null,
       categoria: fila.codigo_principal_de_categoria ?? null,
       estado: fila.estado_resumen ?? null,
+      estado_procedimiento: dato(fila.estado_del_procedimiento),
       portafolio: fila.id_del_portafolio ?? null,
       adjudicado: fila.adjudicado === "Si",
       fecha_adjudicacion: soloDia(fila.fecha_adjudicacion),
@@ -416,6 +417,52 @@
         desde: fechaIso(desde),
         resultados,
       };
+    }
+
+    /**
+     * Estado actual de procesos concretos, por identificador (CO1.REQ.…). Sirve para avisar cambios en los procesos que
+     * una persona sigue. La fuente repite filas por proceso (hasta miles en uno con muchos ítems o ganadores) y un tope
+     * de filas dejaría procesos fuera, así que se agrupa por proceso en el servidor. Si hay varios ganadores no se
+     * informa quién ni por cuánto (no hay un único valor).
+     */
+    async function buscarProcesosPorId(ids) {
+      const unicos = [...new Set(ids)].filter((id) => /^[A-Za-z0-9._-]{3,40}$/.test(id));
+      const respuestas = await Promise.all(
+        lotes(unicos).map((lote) =>
+          consultar(URL_PROCESOS, {
+            $select: [
+              "id_del_proceso", "nombre_del_procedimiento", "entidad", "urlproceso",
+              "max(fecha_de_recepcion_de) as cierre_max", "max(adjudicado) as adjudicado_max",
+              "max(estado_del_procedimiento) as estado_max", "max(fecha_adjudicacion) as fecha_adj_max",
+              "max(valor_total_adjudicacion) as valor_adj_max", "max(nombre_del_proveedor) as ganador_max",
+              "count(distinct nombre_del_proveedor) as n_ganadores",
+            ].join(","),
+            $where: `id_del_proceso in (${listaLiterales(lote)})`,
+            $group: "id_del_proceso,nombre_del_procedimiento,entidad,urlproceso",
+            $limit: 5000,
+          })
+        )
+      );
+      const porId = new Map();
+      for (const grupo of respuestas.flat()) {
+        const unGanador = grupo.adjudicado_max === "Si" && Number(grupo.n_ganadores) === 1;
+        const proceso = normalizarProceso({
+          id_del_proceso: grupo.id_del_proceso,
+          nombre_del_procedimiento: grupo.nombre_del_procedimiento,
+          entidad: grupo.entidad,
+          urlproceso: grupo.urlproceso,
+          fecha_de_recepcion_de: grupo.cierre_max,
+          adjudicado: grupo.adjudicado_max,
+          estado_del_procedimiento: grupo.estado_max,
+          fecha_adjudicacion: grupo.fecha_adj_max,
+          valor_total_adjudicacion: unGanador ? grupo.valor_adj_max : null,
+          nombre_del_proveedor: unGanador ? grupo.ganador_max : null,
+        });
+        if (!proceso.id) continue;
+        const previo = porId.get(proceso.id);
+        if (!previo || (proceso.adjudicado && !previo.adjudicado)) porId.set(proceso.id, proceso);
+      }
+      return porId;
     }
 
     /** Un contrato por proceso (el de mayor valor si hay varios, p. ej. por lotes), indexado por portafolio. */
@@ -642,7 +689,7 @@
       };
     }
 
-    return { buscarOportunidades, buscarAdjudicados, competenciaHistorica, inteligenciaMercado };
+    return { buscarOportunidades, buscarProcesosPorId, buscarAdjudicados, competenciaHistorica, inteligenciaMercado };
   }
 
   const clientePredeterminado = crearCliente();
@@ -669,6 +716,7 @@
     puntuar,
     crearCliente,
     buscarOportunidades: clientePredeterminado.buscarOportunidades,
+    buscarProcesosPorId: clientePredeterminado.buscarProcesosPorId,
     buscarAdjudicados: clientePredeterminado.buscarAdjudicados,
     competenciaHistorica: clientePredeterminado.competenciaHistorica,
     inteligenciaMercado: clientePredeterminado.inteligenciaMercado,

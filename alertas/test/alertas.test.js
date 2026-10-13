@@ -328,7 +328,7 @@ test("ejecución de las alertas", async (t) => {
     const primera = await correr({ ahora: () => MANANA, busquedas: [resumenBusqueda()], estado: null, cliente, enviar });
     assert.equal(mensajes.length, 2);
     assert.match(mensajes[0], /alertas activadas/);
-    assert.match(mensajes[0], /Cada mañana recibirás además un resumen/);
+    assert.match(mensajes[0], /Cada mañana recibirás un resumen/);
     assert.match(mensajes[1], /resumen de 2 procesos nuevos/);
     assert.deepEqual(primera.resumen, { busquedas: 1, nuevos: 2, mensajes: 2, sembradas: 0, fallos_consulta: 0, fallos_telegram: 0 });
     assert.deepEqual(consultas[0].opciones, { amplio: true }, "pide la consulta amplia");
@@ -371,6 +371,17 @@ test("ejecución de las alertas", async (t) => {
     assert.equal(mensajes.length, 1);
   });
 
+  await t.test("la clave de estado de una búsqueda es su identificador, no su nombre: renombrarla no vuelve a sembrarla", async () => {
+    const { mensajes, enviar } = enviadorFalso();
+    const cliente = clienteFalso({ mantenimiento: [proceso("P1"), proceso("P2")] });
+    const base = { version: 1, activadas: true, vistos: { "a:abc12345": { P1: "2026-10-12" } } };
+    const renombrada = busqueda({ nombre: "Nuevo nombre", clave: "a:abc12345" });
+    const { resumen } = await correr({ busquedas: [renombrada], estado: base, cliente, enviar });
+    assert.equal(resumen.sembradas, 0);
+    assert.equal(resumen.nuevos, 1, "solo avisa P2");
+    assert.match(mensajes[0], /Nuevo nombre/);
+  });
+
   await t.test("en simulación no envía nada y entrega los mensajes para revisarlos", async () => {
     const registros = [];
     const enviar = async () => { throw new Error("no debe enviar"); };
@@ -396,7 +407,7 @@ test("programa de línea de comandos (sin red)", async (t) => {
   await t.test("sin configurar, la ejecución programada solo avisa y la manual falla", () => {
     const programada = correr({});
     assert.equal(programada.status, 0);
-    assert.match(programada.stdout, /::warning::Alertas sin configurar: faltan los secretos ALERTAS_BUSQUEDAS, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID/);
+    assert.match(programada.stdout, /::warning::Alertas sin configurar: faltan los secretos TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, ALERTAS_GIST_ID \(o ALERTAS_BUSQUEDAS\)/);
     const manual = correr({ GITHUB_EVENT_NAME: "workflow_dispatch" });
     assert.equal(manual.status, 1);
     assert.match(manual.stdout, /::error::Alertas sin configurar/);
@@ -449,5 +460,205 @@ test("configuración generada por la página", async (t) => {
   await t.test("tolera campos ausentes del perfil guardado", () => {
     const [b] = JSON.parse(Analisis.aConfiguracionAlertas([{ nombre: "X", perfil: { palabras: "software" } }]));
     assert.deepEqual(b, { nombre: "X", palabras: "software", codigos: "", departamento: "", min: "", max: "", competitivos: "1", dias: "15", minimo: 40 });
+  });
+});
+
+const seguido = (id, extra = {}) => ({ id, nombre: `Seguido ${id}`, entidad: "Alcaldía", cierre: "2026-10-20", ...extra });
+const actualDe = (id, extra = {}) => ({
+  id, nombre: `Proceso ${id}`, entidad: "Alcaldía de Honda", cierre: "2026-10-20", adjudicado: false, ganador: null, valor_adjudicado: null,
+  estado_procedimiento: "Publicado", url: `https://community.secop.gov.co/${id}`, ...extra,
+});
+const clienteDeSeguimiento = (procesos) => ({
+  buscarOportunidades: async () => ({ resultados: [] }),
+  buscarProcesosPorId: async (ids) => {
+    if (procesos instanceof Error) throw procesos;
+    return new Map(ids.filter((id) => id in procesos).map((id) => [id, procesos[id]]));
+  },
+});
+
+test("cambios en los procesos que se siguen", async (t) => {
+  const correr = (opciones) => Alertas.ejecutar({ ahora: () => MANANA, busquedas: [], ...opciones });
+  const base = { version: 1, activadas: true, vistos: {}, seguimiento: {} };
+
+  await t.test("cambiosDeProceso detecta cierre, adjudicación y cancelación o suspensión", () => {
+    const previo = { cierre: "2026-10-20", adjudicado: false, estado_proc: "Publicado" };
+    assert.deepEqual(Alertas.cambiosDeProceso(previo, actualDe("A")), []);
+    assert.deepEqual(Alertas.cambiosDeProceso(previo, actualDe("A", { cierre: "2026-10-27" })), [{ tipo: "cierre", de: "2026-10-20", a: "2026-10-27" }]);
+    assert.deepEqual(Alertas.cambiosDeProceso(previo, actualDe("A", { adjudicado: true, ganador: "G SAS", valor_adjudicado: 5 })), [{ tipo: "adjudicado", ganador: "G SAS", valor: 5 }]);
+    assert.deepEqual(Alertas.cambiosDeProceso(previo, actualDe("A", { estado_procedimiento: "Cancelado" })), [{ tipo: "estado", estado: "Cancelado" }]);
+    assert.deepEqual(Alertas.cambiosDeProceso({ ...previo, estado_proc: "Cancelado" }, actualDe("A", { estado_procedimiento: "Cancelado" })), [], "no repite lo ya avisado");
+    assert.deepEqual(Alertas.cambiosDeProceso(previo, actualDe("A", { estado_procedimiento: "Evaluación" })), [], "otros estados no se avisan");
+    assert.deepEqual(Alertas.cambiosDeProceso({ ...previo, cierre: null }, actualDe("A")), [], "sin cierre previo no hay cambio de cierre");
+    assert.equal(Alertas.cambiosDeProceso({ ...previo, adjudicado: true }, actualDe("A", { adjudicado: true })).length, 0);
+  });
+
+  await t.test("la primera vez usa el cierre que se conocía al seguirlo y avisa lo que cambió", async () => {
+    const { mensajes, enviar } = enviadorFalso();
+    const cliente = clienteDeSeguimiento({
+      "CO1.REQ.1": actualDe("CO1.REQ.1", { cierre: "2026-10-27" }),
+      "CO1.REQ.2": actualDe("CO1.REQ.2"),
+      "CO1.REQ.3": actualDe("CO1.REQ.3", { adjudicado: true, ganador: "GANADOR <SAS>", valor_adjudicado: 12000000, estado_procedimiento: "Seleccionado" }),
+    });
+    const seguimiento = [seguido("CO1.REQ.1"), seguido("CO1.REQ.2"), seguido("CO1.REQ.3"), seguido("CO1.REQ.4")];
+    const { estado, resumen } = await correr({ seguimiento, estado: base, cliente, enviar });
+    assert.equal(mensajes.length, 1);
+    assert.match(mensajes[0], /^<b>Radar SECOP: cambiaron 2 procesos que sigues<\/b>/);
+    assert.ok(mensajes[0].includes("1. <b>Proceso CO1.REQ.1</b>\nAlcaldía de Honda\n• Cambió la fecha de cierre: 20 de oct → 27 de oct"));
+    assert.ok(mensajes[0].includes("• Fue adjudicado a GANADOR &lt;SAS&gt; por $ 12.000.000"));
+    assert.ok(mensajes[0].includes('<a href="https://community.secop.gov.co/CO1.REQ.3">Ver en SECOP II</a>'));
+    assert.ok(!mensajes[0].includes("CO1.REQ.2") && !mensajes[0].includes("CO1.REQ.4"));
+    assert.deepEqual(resumen.seguimiento, { revisados: 3, avisados: 2, fallos: 0 });
+    assert.equal(resumen.nuevos, 2);
+    assert.deepEqual(estado.seguimiento["CO1.REQ.1"], { cierre: "2026-10-27", adjudicado: false, estado_proc: "Publicado" });
+    assert.deepEqual(Object.keys(estado.seguimiento).sort(), ["CO1.REQ.1", "CO1.REQ.2", "CO1.REQ.3", "CO1.REQ.4"], "el que aún no está en los datos conserva su línea base");
+  });
+
+  await t.test("la segunda ejecución no repite los cambios ya avisados", async () => {
+    const { mensajes, enviar } = enviadorFalso();
+    const cliente = clienteDeSeguimiento({ "CO1.REQ.1": actualDe("CO1.REQ.1", { cierre: "2026-10-27" }) });
+    const primera = await correr({ seguimiento: [seguido("CO1.REQ.1")], estado: base, cliente, enviar });
+    assert.equal(mensajes.length, 1);
+    const segunda = await correr({ seguimiento: [seguido("CO1.REQ.1")], estado: primera.estado, cliente, enviar });
+    assert.equal(mensajes.length, 1);
+    assert.equal(segunda.resumen.seguimiento.avisados, 0);
+    const cambiado = clienteDeSeguimiento({ "CO1.REQ.1": actualDe("CO1.REQ.1", { cierre: "2026-10-27", estado_procedimiento: "Cancelado" }) });
+    await correr({ seguimiento: [seguido("CO1.REQ.1")], estado: segunda.estado, cliente: cambiado, enviar });
+    assert.equal(mensajes.length, 2);
+    assert.match(mensajes[1], /• Quedó cancelado/);
+  });
+
+  await t.test("si Telegram falla no da el cambio por avisado y se reintenta", async () => {
+    const cliente = clienteDeSeguimiento({ "CO1.REQ.1": actualDe("CO1.REQ.1", { cierre: "2026-10-27" }) });
+    const fallida = await correr({ seguimiento: [seguido("CO1.REQ.1")], estado: base, cliente, enviar: async () => { throw new Alertas.ErrorDeAlertas("Telegram respondió 500"); } });
+    assert.equal(fallida.resumen.fallos_telegram, 1);
+    assert.equal(fallida.estado.seguimiento["CO1.REQ.1"].cierre, "2026-10-20", "conserva la foto anterior");
+    const { mensajes, enviar } = enviadorFalso();
+    await correr({ seguimiento: [seguido("CO1.REQ.1")], estado: fallida.estado, cliente, enviar });
+    assert.equal(mensajes.length, 1);
+  });
+
+  await t.test("si falla la consulta a SECOP II conserva el estado y lo informa sin avisar", async () => {
+    const { mensajes, enviar } = enviadorFalso();
+    const previo = { ...base, seguimiento: { "CO1.REQ.1": { cierre: "2026-10-20", adjudicado: false, estado_proc: "Publicado" } } };
+    const { estado, resumen } = await correr({ seguimiento: [seguido("CO1.REQ.1")], estado: previo, cliente: clienteDeSeguimiento(new Error("caído")), enviar });
+    assert.equal(mensajes.length, 0);
+    assert.equal(resumen.seguimiento.fallos, 1);
+    assert.deepEqual(estado.seguimiento, previo.seguimiento);
+  });
+
+  await t.test("olvida lo que ya no se sigue; sin el parámetro de seguimiento no toca lo guardado", async () => {
+    const previo = { ...base, seguimiento: { "CO1.REQ.1": { cierre: "2026-10-20", adjudicado: false, estado_proc: "Publicado" } } };
+    const { enviar } = enviadorFalso();
+    const sinSeguir = await correr({ seguimiento: [], estado: previo, cliente: clienteDeSeguimiento({}), enviar });
+    assert.deepEqual(sinSeguir.estado.seguimiento, {});
+    const sinParametro = await correr({ estado: previo, cliente: clienteDeSeguimiento({}), enviar });
+    assert.deepEqual(sinParametro.estado.seguimiento, previo.seguimiento);
+    assert.equal(sinParametro.resumen.seguimiento, undefined);
+  });
+
+  await t.test("en simulación entrega el mensaje sin enviarlo", async () => {
+    const impresos = [];
+    const cliente = clienteDeSeguimiento({ "CO1.REQ.1": actualDe("CO1.REQ.1", { cierre: "2026-10-27" }) });
+    await correr({ seguimiento: [seguido("CO1.REQ.1")], estado: base, cliente, enviar: async () => { throw new Error("no debe enviar"); }, simulacion: true, registrar: (m) => impresos.push(m) });
+    assert.equal(impresos.length, 1);
+    assert.match(impresos[0], /cambió un proceso que sigues/);
+  });
+
+  await t.test("la bienvenida menciona el seguimiento y no inventa búsquedas cuando no hay ninguna", () => {
+    const solo = Alertas.mensajeDeBienvenida([], true);
+    assert.equal(solo, "<b>Radar SECOP: alertas activadas</b>\nTambién te aviso si cambia un proceso que sigues (cierre, adjudicación o cancelación).");
+    const completa = Alertas.mensajeDeBienvenida([busqueda(), resumenBusqueda()], true);
+    assert.match(completa, /Vigilo 2 búsquedas: Mantenimiento TI, Resumen nacional\./);
+    assert.match(completa, /Cada mañana recibirás un resumen/);
+    assert.match(completa, /si cambia un proceso que sigues/);
+  });
+
+  await t.test("formatearCambios trocea sin pasar el límite de Telegram", () => {
+    const avisos = Array.from({ length: 25 }, (_, i) => ({
+      proceso: actualDe(`CO1.REQ.${i}`, { nombre: "N".repeat(200), entidad: "E".repeat(300) }), seguido: seguido(`CO1.REQ.${i}`),
+      cambios: [{ tipo: "cierre", de: "2026-10-20", a: "2026-10-27" }, { tipo: "adjudicado", ganador: "G".repeat(200), valor: 1 }],
+    }));
+    const mensajes = Alertas.formatearCambios(avisos);
+    assert.ok(mensajes.length >= 3);
+    for (const m of mensajes) assert.ok(m.length <= 4096);
+    assert.ok(mensajes[1].startsWith("<b>Radar SECOP</b> (continuación de los cambios)"));
+    assert.ok(mensajes.join("\n").includes("25. <b>"));
+  });
+});
+
+test("programa de línea de comandos con el gist de alertas (GitHub simulado)", async (t) => {
+  const { spawn } = require("node:child_process");
+  const programa = path.join(__dirname, "..", "alertas.js");
+  const ID = "aa11bb22cc33dd44";
+  const archivo = (contenido) => ({ files: { "radar-alertas.json": { content: contenido } } });
+
+  /** Levanta un GitHub falso, corre el programa y devuelve su salida y las peticiones recibidas. */
+  async function correr(env, responder) {
+    const peticiones = [];
+    const servidor = http.createServer((req, res) => {
+      peticiones.push({ url: req.url, autorizacion: req.headers.authorization ?? null });
+      const { status = 200, cuerpo = {} } = responder(peticiones.at(-1));
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify(cuerpo));
+    });
+    await new Promise((r) => servidor.listen(0, "127.0.0.1", r));
+    try {
+      const base = `http://127.0.0.1:${servidor.address().port}`;
+      const hijo = spawn(process.execPath, [programa], {
+        env: { PATH: process.env.PATH, TELEGRAM_BOT_TOKEN: "111:TOKEN-SECRETO", TELEGRAM_CHAT_ID: "1", TELEGRAM_API_BASE: base, ALERTAS_GITHUB_API: base, ...env },
+      });
+      let salida = "";
+      hijo.stdout.on("data", (d) => (salida += d));
+      hijo.stderr.on("data", (d) => (salida += d));
+      const status = await new Promise((r) => hijo.on("close", r));
+      return { status, salida, peticiones };
+    } finally {
+      servidor.close();
+    }
+  }
+
+  await t.test("con todas las alertas en pausa no hay nada que revisar y termina bien sin hablar con Telegram", async () => {
+    const contenido = JSON.stringify({ version: 1, alertas: [], resumen: { activo: false }, seguimiento: { avisar: true, procesos: [] } });
+    const r = await correr({ ALERTAS_GIST_ID: ID }, ({ url }) => (url === `/gists/${ID}` ? { cuerpo: archivo(contenido) } : { status: 500 }));
+    assert.equal(r.status, 0);
+    assert.match(r.salida, /No hay alertas activas/);
+    assert.deepEqual(r.peticiones.map((p) => p.url), [`/gists/${ID}`], "solo leyó el gist: nada de Telegram");
+  });
+
+  await t.test("lee el gist con el token del flujo y, si GitHub lo rechaza, sin token", async () => {
+    const contenido = JSON.stringify({ version: 1 });
+    const r = await correr({ ALERTAS_GIST_ID: ID, GITHUB_TOKEN: "ghs_del_flujo" }, ({ autorizacion }) =>
+      autorizacion ? { status: 403, cuerpo: { message: "Resource not accessible by integration" } } : { cuerpo: archivo(contenido) });
+    assert.equal(r.status, 0);
+    assert.deepEqual(r.peticiones.map((p) => p.autorizacion), ["Bearer ghs_del_flujo", null]);
+    assert.ok(!r.salida.includes("ghs_del_flujo"));
+  });
+
+  await t.test("si el gist no existe y no hay respaldo, falla con un mensaje claro y sin mostrar secretos", async () => {
+    const r = await correr({ ALERTAS_GIST_ID: ID }, () => ({ status: 404, cuerpo: { message: "Not Found" } }));
+    assert.equal(r.status, 1);
+    assert.match(r.salida, /::error::No se pudo leer la configuración de alertas del gist\. No se encontró el gist/);
+    assert.ok(!r.salida.includes("TOKEN-SECRETO") && !r.salida.includes(ID));
+  });
+
+  await t.test("si el gist falla pero existe ALERTAS_BUSQUEDAS, avisa y usa el respaldo", async () => {
+    const r = await correr({ ALERTAS_GIST_ID: ID, ALERTAS_BUSQUEDAS: "respaldo-no-es-json" }, () => ({ status: 404 }));
+    assert.equal(r.status, 1);
+    assert.match(r.salida, /::warning::No se pudo leer el gist \(No se encontró el gist.*\); se usa ALERTAS_BUSQUEDAS/);
+    assert.match(r.salida, /::error::ALERTAS_BUSQUEDAS no es un JSON válido/, "llegó a usar el respaldo");
+  });
+
+  await t.test("un gist dañado falla pidiendo guardarlo de nuevo desde la página", async () => {
+    const r = await correr({ ALERTAS_GIST_ID: ID }, () => ({ cuerpo: archivo("{esto no es json") }));
+    assert.equal(r.status, 1);
+    assert.match(r.salida, /::error::La configuración del gist no se pudo leer\. Ábrela en la página y guárdala de nuevo\./);
+  });
+
+  await t.test("las entradas inválidas se ignoran y solo se informa cuántas, sin repetir su contenido", async () => {
+    const contenido = JSON.stringify({ version: 1, alertas: [{ id: "abc12345", nombre: "Mala", palabras: "x' OR 1=1 --" }], resumen: { activo: false }, seguimiento: { avisar: false } });
+    const r = await correr({ ALERTAS_GIST_ID: ID }, () => ({ cuerpo: archivo(contenido) }));
+    assert.equal(r.status, 0);
+    assert.match(r.salida, /::warning::1 entradas de la configuración de alertas no eran válidas y se ignoraron\./);
+    assert.ok(!r.salida.includes("OR 1=1") && !r.salida.includes("Mala"));
   });
 });

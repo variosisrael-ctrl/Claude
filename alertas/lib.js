@@ -205,6 +205,56 @@ function formatearResumen(busqueda, procesos, { hoy, appUrl, limiteAlcanzado = f
   });
 }
 
+// --- Seguimiento de procesos ------------------------------------------------------
+
+const ESTADOS_QUE_SE_AVISAN = ["Cancelado", "Suspendido"];
+const fechaLarga = (iso) => (iso ? formatoFecha.format(new Date(iso + "T00:00:00Z")) : "sin fecha");
+
+/**
+ * Qué cambió en un proceso seguido. `previo` es lo último que se vio de él o, la primera vez, lo que se sabía al
+ * seguirlo ({cierre, adjudicado, estado_proc}); `actual` es el proceso tal como está hoy en SECOP II.
+ */
+function cambiosDeProceso(previo, actual) {
+  const cambios = [];
+  if (previo.cierre && actual.cierre && previo.cierre !== actual.cierre) {
+    cambios.push({ tipo: "cierre", de: previo.cierre, a: actual.cierre });
+  }
+  if (!previo.adjudicado && actual.adjudicado) {
+    cambios.push({ tipo: "adjudicado", ganador: actual.ganador, valor: actual.valor_adjudicado });
+  }
+  const estado = actual.estado_procedimiento;
+  if (estado && estado !== previo.estado_proc && ESTADOS_QUE_SE_AVISAN.includes(estado)) {
+    cambios.push({ tipo: "estado", estado });
+  }
+  return cambios;
+}
+
+function bloqueCambios({ proceso, seguido, cambios }, numero) {
+  const lineas = cambios.map((c) => {
+    if (c.tipo === "cierre") return `• Cambió la fecha de cierre: ${fechaLarga(c.de)} → ${fechaLarga(c.a)}`;
+    if (c.tipo === "adjudicado") {
+      return `• Fue adjudicado${c.ganador ? ` a ${escaparHTML(c.ganador)}` : ""}${c.valor ? ` por ${escaparHTML(dinero(c.valor))}` : ""}`;
+    }
+    return `• Quedó ${escaparHTML(c.estado.toLowerCase())}`;
+  });
+  const nombre = proceso.nombre || seguido.nombre || "Proceso sin nombre";
+  const entidad = proceso.entidad || seguido.entidad;
+  const enlace = proceso.url ? `\n<a href="${escaparAtributo(proceso.url)}">Ver en SECOP II</a>` : "";
+  return `${numero}. <b>${escaparHTML(recortar(nombre, 140))}</b>${entidad ? `\n${escaparHTML(entidad)}` : ""}\n${lineas.join("\n")}${enlace}`;
+}
+
+/** Mensajes con los cambios de los procesos que la persona sigue (uno o varios, según el límite de Telegram). */
+function formatearCambios(avisos, { limite = LIMITE_MENSAJE, porMensaje = MAXIMO_POR_MENSAJE } = {}) {
+  return empaquetar({
+    titulo: `<b>Radar SECOP: ${avisos.length === 1 ? "cambió un proceso que sigues" : `cambiaron ${avisos.length} procesos que sigues`}</b>`,
+    continuacion: "<b>Radar SECOP</b> (continuación de los cambios)",
+    bloques: avisos.map((aviso, i) => bloqueCambios(aviso, i + 1)),
+    pie: "",
+    limite,
+    porMensaje,
+  });
+}
+
 // --- Telegram -------------------------------------------------------------------
 
 /** Devuelve una función que envía un mensaje. Los errores no incluyen el token. */
@@ -247,6 +297,73 @@ function limpiarEstado(estado, hoyIso) {
   }
 }
 
+function mensajeDeBienvenida(busquedas, haySeguimiento) {
+  const porTema = busquedas.filter((b) => !b.resumen);
+  const partes = ["<b>Radar SECOP: alertas activadas</b>"];
+  if (busquedas.length) {
+    partes.push(
+      `Vigilo ${busquedas.length} ${busquedas.length === 1 ? "búsqueda" : "búsquedas"}: ${busquedas.map((b) => escaparHTML(b.nombre)).join(", ")}.`
+    );
+  }
+  const avisos = [];
+  if (porTema.length) avisos.push("Te aviso cuando aparezcan procesos nuevos. Los que ya están abiertos hoy no se reenvían.");
+  if (busquedas.some((b) => b.resumen)) avisos.push("Cada mañana recibirás un resumen de los procesos nuevos del país.");
+  if (haySeguimiento) avisos.push("También te aviso si cambia un proceso que sigues (cierre, adjudicación o cancelación).");
+  return [...partes, avisos.join(" ")].filter(Boolean).join("\n");
+}
+
+/**
+ * Compara los procesos que la persona sigue con su estado actual en SECOP II y avisa lo que cambió. Un cambio solo se
+ * da por avisado si el mensaje se envió; lo demás actualiza la última foto de cada proceso.
+ */
+async function revisarSeguimiento({ seguimiento, cliente, enviar, nuevoEstado, previas, resumen, simulacion, registrar }) {
+  resumen.seguimiento = { revisados: 0, avisados: 0, fallos: 0 };
+  if (!seguimiento.length) {
+    nuevoEstado.seguimiento = {}; // ya no se sigue nada: se olvida lo anterior
+    return;
+  }
+
+  let actuales;
+  try {
+    actuales = await cliente.buscarProcesosPorId(seguimiento.map((p) => p.id));
+  } catch (error) {
+    registrar(`No se pudo revisar el seguimiento en SECOP II: ${error.message}`);
+    resumen.seguimiento.fallos += 1;
+    return; // se conserva lo último que se vio y se reintenta en la siguiente ejecución
+  }
+
+  const fotos = {};
+  const avisos = [];
+  for (const seguido of seguimiento) {
+    const actual = actuales.get(seguido.id);
+    const previo = previas[seguido.id] ?? { cierre: seguido.cierre ?? null, adjudicado: false, estado_proc: null };
+    if (!actual) {
+      fotos[seguido.id] = previas[seguido.id] ?? previo; // SECOP II aún no lo publica en los datos abiertos
+      continue;
+    }
+    resumen.seguimiento.revisados += 1;
+    fotos[seguido.id] = { cierre: actual.cierre, adjudicado: actual.adjudicado, estado_proc: actual.estado_procedimiento };
+    const cambios = cambiosDeProceso(previo, actual);
+    if (cambios.length) avisos.push({ proceso: actual, seguido, cambios, previo });
+  }
+
+  if (avisos.length) {
+    try {
+      const mensajes = formatearCambios(avisos);
+      if (simulacion) mensajes.forEach((m) => registrar(m));
+      else for (const mensaje of mensajes) await enviar(mensaje);
+      resumen.seguimiento.avisados = avisos.length;
+      resumen.nuevos += avisos.length;
+      resumen.mensajes += mensajes.length;
+    } catch (error) {
+      registrar(`No se pudieron avisar los cambios del seguimiento: ${error.message}`);
+      resumen.fallos_telegram += 1;
+      for (const { seguido, previo } of avisos) fotos[seguido.id] = previo; // se reintenta en la siguiente ejecución
+    }
+  }
+  nuevoEstado.seguimiento = fotos;
+}
+
 /**
  * Corre todas las búsquedas. Devuelve el estado nuevo y un resumen con conteos (nunca nombres).
  * - Una búsqueda sin historial se "siembra" en silencio para no inundar el chat, salvo `enviarTodo`.
@@ -254,21 +371,17 @@ function limpiarEstado(estado, hoyIso) {
  * - Una búsqueda de tipo resumen sale una vez al día (en la ejecución de la mañana, o en cualquiera si es manual) y
  *   cubre los procesos nuevos desde el resumen anterior; su primer resumen no se siembra en silencio.
  */
-async function ejecutar({ busquedas, estado, cliente, enviar, ahora = Date.now, appUrl = "", enviarTodo = false, manual = false, simulacion = false, registrar = () => {} }) {
+async function ejecutar({ busquedas, seguimiento, estado, cliente, enviar, ahora = Date.now, appUrl = "", enviarTodo = false, manual = false, simulacion = false, registrar = () => {} }) {
   const hoy = new Date(ahora());
   const hoyIso = Secop.fechaIso(hoy);
   const tocaResumen = manual || enviarTodo || horaEnBogota(hoy) < HORA_RESUMEN_HASTA;
-  const nuevoEstado = { version: 1, vistos: { ...(estado?.vistos ?? {}) }, activadas: estado?.activadas === true };
+  const nuevoEstado = { version: 1, vistos: { ...(estado?.vistos ?? {}) }, activadas: estado?.activadas === true, seguimiento: { ...(estado?.seguimiento ?? {}) } };
   const resumen = { busquedas: busquedas.length, nuevos: 0, mensajes: 0, sembradas: 0, fallos_consulta: 0, fallos_telegram: 0 };
+  const procesosSeguidos = seguimiento?.length ?? 0;
 
   if (!nuevoEstado.activadas && !simulacion) {
     try {
-      await enviar(
-        `<b>Radar SECOP: alertas activadas</b>\nVigilo ${busquedas.length} ${busquedas.length === 1 ? "búsqueda" : "búsquedas"}: ` +
-          `${busquedas.map((b) => escaparHTML(b.nombre)).join(", ")}.\n` +
-          "Te aviso cuando aparezcan procesos nuevos. Los que ya están abiertos hoy no se reenvían." +
-          (busquedas.some((b) => b.resumen) ? " Cada mañana recibirás además un resumen de los procesos nuevos del país." : "")
-      );
+      await enviar(mensajeDeBienvenida(busquedas, procesosSeguidos > 0));
       nuevoEstado.activadas = true;
       resumen.mensajes += 1;
     } catch (error) {
@@ -279,7 +392,7 @@ async function ejecutar({ busquedas, estado, cliente, enviar, ahora = Date.now, 
 
   for (const busqueda of busquedas) {
     if (busqueda.resumen && !tocaResumen) continue; // el resumen de la mañana cubre también lo publicado en la tarde
-    const clave = clavePorNombre(busqueda.nombre);
+    const clave = busqueda.clave ?? clavePorNombre(busqueda.nombre);
     let resultados;
     let limiteAlcanzado = false;
     try {
@@ -324,11 +437,13 @@ async function ejecutar({ busquedas, estado, cliente, enviar, ahora = Date.now, 
     }
   }
 
+  if (seguimiento) await revisarSeguimiento({ seguimiento, cliente, enviar, nuevoEstado, previas: estado?.seguimiento ?? {}, resumen, simulacion, registrar });
+
   limpiarEstado(nuevoEstado, hoyIso);
   return { estado: nuevoEstado, resumen };
 }
 
 module.exports = {
   ErrorDeAlertas, MINIMO_POR_DEFECTO, LIMITE_MENSAJE,
-  leerBusquedas, formatearMensajes, formatearResumen, horaEnBogota, enlaceDeLaApp, textoCierre, crearEnviadorTelegram, ejecutar, escaparHTML,
+  leerBusquedas, formatearMensajes, formatearResumen, formatearCambios, cambiosDeProceso, mensajeDeBienvenida, horaEnBogota, enlaceDeLaApp, textoCierre, crearEnviadorTelegram, ejecutar, escaparHTML,
 };
