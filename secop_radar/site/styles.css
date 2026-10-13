@@ -115,6 +115,15 @@ input[type="checkbox"] { width: auto; margin: 0 6px 0 0; }
 .puntaje.bajo { color: var(--bajo); background: var(--bajo-suave); }
 .chip { font-size: 0.8rem; color: var(--acento); background: var(--acento-suave); padding: 2px 9px; border-radius: 999px; }
 
+.chip.urgente { color: var(--peligro); background: #fbe9e7; font-weight: 600; }
+.chip.pronto { color: var(--medio); background: var(--medio-suave); font-weight: 600; }
+.chip.cerrado { color: var(--bajo); background: var(--bajo-suave); }
+.herramientas-lista { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.herramientas-lista .resumen { margin: 0; flex: 1 1 320px; }
+.herramientas-lista label { margin: 0; display: flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; }
+.herramientas-lista select { width: auto; margin: 0; }
+.aviso-limite { margin: 0 0 12px; padding: 10px 12px; font-size: 0.85rem; color: var(--medio); background: var(--medio-suave); border-radius: 8px; }
+.mas { margin: 16px 0 0; text-align: center; }
 .entidad { margin: 0 0 8px; font-size: 0.9rem; color: var(--texto-suave); }
 .descripcion { margin: 0 0 10px; font-size: 0.9rem; }
 

@@ -45,7 +45,8 @@ test("validación", async (t) => {
 });
 
 test("cláusulas SoQL", async (t) => {
-  const desde = new Date(2026, 8, 13); // 13 de septiembre de 2026, hora local
+  const desde = new Date(Date.UTC(2026, 8, 13, 17)); // 13 de septiembre de 2026, mediodía en Bogotá
+  const hoy = new Date(Date.UTC(2026, 9, 13, 17)); // 13 de octubre de 2026, mediodía en Bogotá
 
   await t.test("literal duplica las comillas simples", () => {
     assert.equal(Secop.literal("a'b"), "'a''b'");
@@ -55,7 +56,7 @@ test("cláusulas SoQL", async (t) => {
     const perfil = Secop.parsearPerfil({
       codigos: "8011", palabras: "mantenimiento", min: "1000000", max: "9000000", departamento: "antioquia",
     });
-    const clausula = Secop.clausulaOportunidades(perfil, desde);
+    const clausula = Secop.clausulaOportunidades(perfil, desde, hoy);
     for (const fragmento of [
       "estado_de_apertura_del_proceso = 'Abierto'",
       "fecha_de_publicacion_del >= '2026-09-13T00:00:00'",
@@ -80,17 +81,32 @@ test("cláusulas SoQL", async (t) => {
   });
 
   await t.test("el filtro competitivo excluye directa pero no las variantes con ofertas", () => {
-    const clausula = Secop.clausulaOportunidades(Secop.parsearPerfil({ codigos: "8011" }), desde);
+    const clausula = Secop.clausulaOportunidades(Secop.parsearPerfil({ codigos: "8011" }), desde, hoy);
     assert.ok(clausula.includes("modalidad_de_contratacion not in ("));
     assert.ok(clausula.includes("'Contratación directa'"));
     assert.ok(clausula.includes("'Contratación régimen especial'"));
     assert.ok(!clausula.includes("(con ofertas)"));
   });
 
+  await t.test("por defecto solo pide procesos con plazo vigente y sin adjudicar", () => {
+    const perfil = Secop.parsearPerfil({ codigos: "8011" });
+    assert.equal(perfil.abiertos, true);
+    const clausula = Secop.clausulaOportunidades(perfil, desde, hoy);
+    assert.ok(clausula.includes("fecha_de_recepcion_de >= '2026-10-13T00:00:00'"));
+    assert.ok(clausula.includes("adjudicado = 'No'"));
+  });
+
+  await t.test("con abiertos desactivado no filtra por plazo ni por adjudicación", () => {
+    const perfil = Secop.parsearPerfil({ codigos: "8011", abiertos: "0" });
+    const clausula = Secop.clausulaOportunidades(perfil, desde, hoy);
+    assert.ok(!clausula.includes("fecha_de_recepcion_de"));
+    assert.ok(!clausula.includes("adjudicado ="));
+  });
+
   await t.test("el filtro competitivo se puede desactivar", () => {
     const perfil = Secop.parsearPerfil({ codigos: "8011", competitivos: "0" });
     assert.equal(perfil.competitivos, false);
-    assert.ok(!Secop.clausulaOportunidades(perfil, desde).includes("not in"));
+    assert.ok(!Secop.clausulaOportunidades(perfil, desde, hoy).includes("not in"));
   });
 });
 
@@ -176,7 +192,7 @@ test("casos de uso con datos.gov.co simulado", async (t) => {
       fila("A", "Mantenimiento de software", "V1.80111600", "2026-10-09T00:00:00.000"),
       { nombre_del_procedimiento: "Sin identificador" },
     ];
-    const { cliente, llamadas } = clienteFalso(() => filas, { ahora: () => new Date(2026, 9, 13).getTime() });
+    const { cliente, llamadas } = clienteFalso(() => filas, { ahora: () => Date.UTC(2026, 9, 13, 17) });
     const resultado = await cliente.buscarOportunidades({ palabras: "software, mantenimiento", codigos: "8011" });
 
     assert.deepEqual(resultado.resultados.map((op) => op.id), ["A", "B"]);
@@ -185,7 +201,7 @@ test("casos de uso con datos.gov.co simulado", async (t) => {
     assert.equal(llamadas.length, 1);
     assert.equal(llamadas[0].base, Secop.URL_PROCESOS);
     assert.ok(llamadas[0].parametros.$where.includes("'Abierto'"));
-    assert.equal(llamadas[0].parametros.$order, "fecha_de_publicacion_del DESC");
+    assert.equal(llamadas[0].parametros.$order, "fecha_de_recepcion_de ASC");
   });
 
   await t.test("el mercado convierte texto de la fuente en números y filtra por consulta", async () => {
@@ -246,5 +262,74 @@ test("casos de uso con datos.gov.co simulado", async (t) => {
     momento += 601_000; // pasaron más de 10 minutos
     await cliente.buscarOportunidades(params);
     assert.equal(llamadas.length, 2);
+  });
+});
+
+test("fechas en hora de Colombia", async (t) => {
+  await t.test("fechaIso usa la fecha de Bogotá, no la del servidor", () => {
+    // 03:00 UTC del 14 de octubre son las 22:00 del 13 de octubre en Bogotá.
+    assert.equal(Secop.fechaIso(new Date(Date.UTC(2026, 9, 14, 3))), "2026-10-13");
+    assert.equal(Secop.fechaIso(new Date(Date.UTC(2026, 9, 14, 6))), "2026-10-14");
+  });
+
+  await t.test("diasHasta cuenta días de calendario", () => {
+    const hoy = new Date(Date.UTC(2026, 9, 31, 17)); // 31 de octubre
+    assert.equal(Secop.diasHasta("2026-10-31", hoy), 0);
+    assert.equal(Secop.diasHasta("2026-11-01", hoy), 1);
+    assert.equal(Secop.diasHasta("2026-10-29", hoy), -2);
+    assert.equal(Secop.diasHasta("2027-01-01", hoy), 62);
+    assert.equal(Secop.diasHasta(null, hoy), null);
+  });
+});
+
+test("normalizarProceso: adjudicación y cierre", async (t) => {
+  await t.test("lee cierre, estado, portafolio y entidad", () => {
+    const op = Secop.normalizarProceso({
+      id_del_proceso: "CO1.REQ.1", fecha_de_recepcion_de: "2026-10-16T00:00:00.000", estado_resumen: "Presentación de oferta",
+      id_del_portafolio: "CO1.BDOS.9", nit_entidad: "899999027", adjudicado: "No",
+    });
+    assert.equal(op.cierre, "2026-10-16");
+    assert.equal(op.estado, "Presentación de oferta");
+    assert.equal(op.portafolio, "CO1.BDOS.9");
+    assert.equal(op.nit_entidad, "899999027");
+    assert.equal(op.adjudicado, false);
+  });
+
+  await t.test("trata 'No Definido' y 'No Adjudicado' como ausencia de dato", () => {
+    const op = Secop.normalizarProceso({
+      id_del_proceso: "CO1.REQ.2", adjudicado: "Si", valor_total_adjudicacion: "21559944",
+      nombre_del_proveedor: "No Definido", nit_del_proveedor_adjudicado: "No Adjudicado",
+    });
+    assert.equal(op.adjudicado, true);
+    assert.equal(op.valor_adjudicado, 21559944);
+    assert.equal(op.ganador, null);
+    assert.equal(op.nit_ganador, null);
+  });
+
+  await t.test("conserva al ganador cuando sí hay dato", () => {
+    const op = Secop.normalizarProceso({ nombre_del_proveedor: "OFICIAR S.A.S", nit_del_proveedor_adjudicado: "830013740" });
+    assert.equal(op.ganador, "OFICIAR S.A.S");
+    assert.equal(op.nit_ganador, "830013740");
+  });
+});
+
+test("búsqueda de oportunidades abiertas", async (t) => {
+  await t.test("devuelve todos, pide primero los que cierran antes y avisa si se alcanzó el tope", async () => {
+    const filas = Array.from({ length: 1000 }, (_, i) => ({
+      id_del_proceso: `CO1.REQ.${i}`, nombre_del_procedimiento: "Software", fecha_de_recepcion_de: "2026-10-20T00:00:00.000",
+    }));
+    const { cliente, llamadas } = clienteFalso(() => filas, { ahora: () => Date.UTC(2026, 9, 13, 17) });
+    const resultado = await cliente.buscarOportunidades({ palabras: "software" });
+    assert.equal(resultado.limite_alcanzado, true);
+    assert.equal(resultado.resultados.length, 1000); // se devuelven todos; la interfaz los pagina
+    assert.equal(llamadas[0].parametros.$order, "fecha_de_recepcion_de ASC");
+    assert.equal(llamadas[0].parametros.$limit, "1000");
+  });
+
+  await t.test("sin filtro de abiertos ordena por publicación reciente", async () => {
+    const { cliente, llamadas } = clienteFalso(() => [], { ahora: () => Date.UTC(2026, 9, 13, 17) });
+    const resultado = await cliente.buscarOportunidades({ palabras: "software", abiertos: "0" });
+    assert.equal(resultado.limite_alcanzado, false);
+    assert.equal(llamadas[0].parametros.$order, "fecha_de_publicacion_del DESC");
   });
 });

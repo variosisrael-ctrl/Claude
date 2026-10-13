@@ -28,8 +28,7 @@
     "Enajenación de bienes con sobre cerrado",
   ];
 
-  const FILAS_A_PUNTUAR = 500;
-  const MAXIMO_OPORTUNIDADES = 50;
+  const FILAS_A_PUNTUAR = 1000;
   const MAXIMO_FILAS_MERCADO = 10;
   const MS_CACHE = 600_000;
   const MS_TIMEOUT = 30_000;
@@ -104,6 +103,7 @@
       max: entero(params.max, "El presupuesto máximo", 0, 1e15),
       dias: entero(params.dias, "Los días", 1, 365, 30),
       competitivos: params.competitivos !== "0",
+      abiertos: params.abiertos !== "0",
     };
     if (!perfil.palabras.length && !perfil.codigos.length) {
       throw new ErrorDeValidacion("Indica al menos una palabra clave o un código UNSPSC.");
@@ -125,16 +125,32 @@
   const condicionCompetitiva = () =>
     `modalidad_de_contratacion not in (${MODALIDADES_NO_COMPETITIVAS.map(literal).join(",")})`;
 
-  const dosDigitos = (n) => String(n).padStart(2, "0");
-  const fechaIso = (fecha) =>
-    `${fecha.getFullYear()}-${dosDigitos(fecha.getMonth() + 1)}-${dosDigitos(fecha.getDate())}`;
+  // Todas las fechas "de hoy" se calculan en hora de Colombia, sin importar dónde corra el código
+  // (las alertas corren en servidores en UTC, donde la fecha local puede estar un día adelantada).
+  const formatoFechaBogota = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit",
+  });
+  const fechaIso = (fecha) => formatoFechaBogota.format(fecha);
 
-  function clausulaOportunidades(perfil, desde) {
+  /** Días de calendario desde `hoy` hasta la fecha ISO (AAAA-MM-DD). 0 es hoy; negativo, ya pasó. */
+  function diasHasta(iso, hoy) {
+    if (!iso) return null;
+    const [anio, mes, dia] = iso.split("-").map(Number);
+    const [anioHoy, mesHoy, diaHoy] = fechaIso(hoy).split("-").map(Number);
+    return Math.round((Date.UTC(anio, mes - 1, dia) - Date.UTC(anioHoy, mesHoy - 1, diaHoy)) / MS_POR_DIA);
+  }
+
+  function clausulaOportunidades(perfil, desde, hoy = new Date()) {
     const condiciones = [
       "estado_de_apertura_del_proceso = 'Abierto'",
       // 'Abierto' no se actualiza en procesos viejos, por eso también filtramos por fecha de publicación.
       `fecha_de_publicacion_del >= ${literal(fechaIso(desde) + "T00:00:00")}`,
     ];
+    if (perfil.abiertos) {
+      // Solo procesos que todavía reciben ofertas: plazo de recepción vigente y sin adjudicar.
+      condiciones.push(`fecha_de_recepcion_de >= ${literal(fechaIso(hoy) + "T00:00:00")}`);
+      condiciones.push("adjudicado = 'No'");
+    }
     const alcance = [];
     if (perfil.codigos.length) alcance.push(condicionCodigos(perfil.codigos, "codigo_principal_de_categoria"));
     for (const palabra of perfil.palabras) {
@@ -179,6 +195,11 @@
 
   const conteo = (valor) => Math.trunc(numero(valor) || 0);
 
+  const soloDia = (valor) => (valor || "").slice(0, 10) || null;
+
+  // La fuente escribe "No Definido" / "No Adjudicado" donde no hay dato.
+  const dato = (valor) => (valor && !/^no (definido|adjudicado)$/i.test(valor) ? valor : null);
+
   // La fuente entrega 'urlproceso' como objeto {"url": ...}. Solo aceptamos enlaces https.
   function urlProceso(valor) {
     const url = valor && typeof valor === "object" ? valor.url : valor;
@@ -192,12 +213,21 @@
       nombre: fila.nombre_del_procedimiento || "",
       descripcion: fila.descripci_n_del_procedimiento || "",
       entidad: fila.entidad ?? null,
+      nit_entidad: fila.nit_entidad ?? null,
       ciudad: fila.ciudad_entidad ?? null,
       departamento: fila.departamento_entidad ?? null,
-      publicado: (fila.fecha_de_publicacion_del || "").slice(0, 10) || null,
+      publicado: soloDia(fila.fecha_de_publicacion_del),
+      cierre: soloDia(fila.fecha_de_recepcion_de),
       presupuesto: numero(fila.precio_base),
       modalidad: fila.modalidad_de_contratacion ?? null,
       categoria: fila.codigo_principal_de_categoria ?? null,
+      estado: fila.estado_resumen ?? null,
+      portafolio: fila.id_del_portafolio ?? null,
+      adjudicado: fila.adjudicado === "Si",
+      fecha_adjudicacion: soloDia(fila.fecha_adjudicacion),
+      valor_adjudicado: numero(fila.valor_total_adjudicacion),
+      ganador: dato(fila.nombre_del_proveedor),
+      nit_ganador: dato(fila.nit_del_proveedor_adjudicado),
       url: urlProceso(fila.urlproceso),
     };
   }
@@ -284,10 +314,12 @@
 
     async function buscarOportunidades(params) {
       const perfil = parsearPerfil(params);
-      const desde = new Date(ahora() - perfil.dias * MS_POR_DIA);
+      const hoy = new Date(ahora());
+      const desde = new Date(hoy.getTime() - perfil.dias * MS_POR_DIA);
       const filas = await consultar(URL_PROCESOS, {
-        $where: clausulaOportunidades(perfil, desde),
-        $order: "fecha_de_publicacion_del DESC",
+        $where: clausulaOportunidades(perfil, desde, hoy),
+        // Si hay más filas que el tope, que queden las que cierran primero (las más urgentes).
+        $order: perfil.abiertos ? "fecha_de_recepcion_de ASC" : "fecha_de_publicacion_del DESC",
         $limit: FILAS_A_PUNTUAR,
       });
 
@@ -306,15 +338,16 @@
       );
       return {
         filas_revisadas: filas.length,
+        limite_alcanzado: filas.length >= FILAS_A_PUNTUAR,
         desde: fechaIso(desde),
-        resultados: resultados.slice(0, MAXIMO_OPORTUNIDADES),
+        resultados,
       };
     }
 
     /** Quién compra y quién gana contratos en las mismas categorías o palabras clave. */
     async function inteligenciaMercado(params) {
       const perfil = parsearPerfil(params);
-      const anioActual = new Date(ahora()).getFullYear();
+      const anioActual = Number(fechaIso(new Date(ahora())).slice(0, 4));
       const desdeAnio = entero(params.desde, "El año inicial", 2015, anioActual, anioActual - 3);
       const base = { $order: "contratos DESC", $limit: MAXIMO_FILAS_MERCADO };
       const dondeCompetitivo = clausulaMercado(perfil, desdeAnio, perfil.competitivos);
@@ -394,6 +427,8 @@
     normalizarPalabras,
     parsearPerfil,
     literal,
+    fechaIso,
+    diasHasta,
     clausulaOportunidades,
     clausulaMercado,
     normalizarProceso,

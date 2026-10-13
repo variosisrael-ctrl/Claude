@@ -49,6 +49,12 @@
         </label>
 
         <label class="casilla">
+          <input id="abiertos" type="checkbox" checked>
+          Solo los que aún reciben ofertas
+          <span class="ayuda">Oculta procesos con plazo vencido o ya adjudicados.</span>
+        </label>
+
+        <label class="casilla">
           <input id="competitivos" type="checkbox" checked>
           Solo procesos competitivos
           <span class="ayuda">Excluye contratación directa y régimen especial: allí la entidad ya eligió a quién contratar.</span>
@@ -71,8 +77,8 @@
       <div id="vista-seguimiento" class="vista" hidden></div>
 
       <p class="aviso">
-        Datos abiertos de SECOP II en datos.gov.co. Este dataset no incluye la fecha de cierre:
-        confirma siempre el cronograma, los requisitos y las adendas en el proceso oficial antes de ofertar.
+        Datos abiertos de SECOP II en datos.gov.co. La fecha de cierre es la de recepción de ofertas publicada
+        en SECOP; la hora exacta, las adendas y los requisitos están en el proceso oficial: confírmalos antes de ofertar.
       </p>
     </section>
   </main>

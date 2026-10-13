@@ -24,7 +24,13 @@ const $ = (selector) => document.querySelector(selector);
 const formatoCOP = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
 const formatoNumero = new Intl.NumberFormat("es-CO");
 
-const estado = { datosBusqueda: null, anioMercado: new Date().getFullYear() - 3 };
+const POR_PAGINA = 25;
+const estado = {
+  datosBusqueda: null,
+  orden: "relevancia",
+  visibles: POR_PAGINA,
+  anioMercado: new Date().getFullYear() - 3,
+};
 
 // --- Utilidades ---------------------------------------------------------------
 
@@ -71,11 +77,32 @@ function fechaCorta(iso) {
   return new Date(iso + "T00:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" });
 }
 
+/** Texto y estilo del plazo de recepción de ofertas, en días de calendario (hora de Colombia). */
+function infoCierre(op) {
+  const dias = Secop.diasHasta(op.cierre, new Date());
+  if (dias === null) return { texto: "Cierre no informado", clase: "" };
+  if (dias < 0) return { texto: `Cerró hace ${-dias} día${dias === -1 ? "" : "s"}`, clase: "cerrado" };
+  if (dias === 0) return { texto: "Cierra hoy", clase: "urgente" };
+  if (dias === 1) return { texto: "Cierra mañana", clase: "urgente" };
+  return { texto: `Cierra en ${dias} días (${fechaCorta(op.cierre)})`, clase: dias <= 3 ? "pronto" : "" };
+}
+
+const ORDENES = {
+  relevancia: { etiqueta: "Relevancia", comparar: () => 0 },
+  cierre: {
+    etiqueta: "Cierra primero",
+    comparar: (a, b) => (a.cierre || "9999").localeCompare(b.cierre || "9999") || b.puntaje - a.puntaje,
+  },
+  presupuesto: { etiqueta: "Mayor presupuesto", comparar: (a, b) => (b.presupuesto ?? -1) - (a.presupuesto ?? -1) },
+  recientes: { etiqueta: "Más recientes", comparar: (a, b) => (b.publicado || "").localeCompare(a.publicado || "") },
+};
+
 // --- Perfil -------------------------------------------------------------------
 
 const perfilDelFormulario = () => ({
   ...Object.fromEntries(CAMPOS_PERFIL.map((c) => [c, $("#" + c).value.trim()])),
   competitivos: $("#competitivos").checked ? "1" : "0",
+  abiertos: $("#abiertos").checked ? "1" : "0",
 });
 const perfilTieneAlcance = (perfil) => Boolean(perfil.palabras || perfil.codigos);
 
@@ -85,6 +112,7 @@ function cargarPerfilEnFormulario() {
     if (perfil[campo] !== undefined) $("#" + campo).value = perfil[campo];
   });
   $("#competitivos").checked = perfil.competitivos !== "0";
+  $("#abiertos").checked = perfil.abiertos !== "0";
 }
 
 const aParametros = (valores) =>
@@ -105,6 +133,7 @@ async function buscarOportunidades() {
   vista.innerHTML = mensaje("Consultando SECOP II…");
   try {
     estado.datosBusqueda = await Secop.buscarOportunidades(aParametros(perfil));
+    estado.visibles = POR_PAGINA;
     renderOportunidades();
   } catch (error) {
     vista.innerHTML = mensaje(error.message, "error");
@@ -114,18 +143,36 @@ async function buscarOportunidades() {
 function renderOportunidades() {
   const datos = estado.datosBusqueda;
   const vista = $("#vista-oportunidades");
+  const soloAbiertos = leer(CLAVE_PERFIL, {}).abiertos !== "0";
   if (!datos.resultados.length) {
     vista.innerHTML = mensaje(
-      `No hay procesos abiertos publicados desde el ${fechaCorta(datos.desde)} que coincidan con tu perfil. ` +
-        "Prueba con más palabras clave, un prefijo de código más corto, más días o un rango de presupuesto más amplio."
+      soloAbiertos
+        ? "No hay procesos que sigan recibiendo ofertas y coincidan con tu perfil. Prueba con más palabras clave, " +
+            "un prefijo de código más corto, más días de publicación o desmarca “Solo los que aún reciben ofertas”."
+        : `No hay procesos publicados desde el ${fechaCorta(datos.desde)} que coincidan con tu perfil. ` +
+            "Prueba con más palabras clave, un prefijo de código más corto, más días o un rango de presupuesto más amplio."
     );
     return;
   }
+
+  const ordenados = [...datos.resultados].sort(ORDENES[estado.orden].comparar);
+  const visibles = ordenados.slice(0, estado.visibles);
   vista.innerHTML = `
-    <p class="resumen">Mostramos los ${datos.resultados.length} procesos más relevantes de
-      ${formatoNumero.format(datos.filas_revisadas)} revisados, publicados desde el ${fechaCorta(datos.desde)}.
-      El porcentaje indica qué tanto coinciden con tu perfil.</p>
-    <div class="lista">${datos.resultados.map(tarjetaOportunidad).join("")}</div>`;
+    ${datos.limite_alcanzado ? `<p class="aviso-limite">Tu perfil coincide con más de ${formatoNumero.format(datos.filas_revisadas)} procesos y solo
+      revisamos ese tope. Estrecha las palabras clave, los códigos o el presupuesto para no perder ninguno.</p>` : ""}
+    <div class="herramientas-lista">
+      <p class="resumen">${datos.resultados.length} proceso${datos.resultados.length === 1 ? "" : "s"} coinciden con tu perfil
+        (publicados desde el ${fechaCorta(datos.desde)}). El porcentaje indica qué tanto se parecen a tu perfil.</p>
+      <label>Ordenar por
+        <select id="orden">
+          ${Object.entries(ORDENES).map(([clave, o]) => `<option value="${clave}" ${clave === estado.orden ? "selected" : ""}>${o.etiqueta}</option>`).join("")}
+        </select>
+      </label>
+    </div>
+    <div class="lista">${visibles.map(tarjetaOportunidad).join("")}</div>
+    ${ordenados.length > visibles.length
+      ? `<p class="mas"><button class="boton" data-mas>Mostrar más (${ordenados.length - visibles.length} restantes)</button></p>`
+      : ""}`;
 }
 
 function tarjetaOportunidad(op) {
@@ -136,6 +183,8 @@ function tarjetaOportunidad(op) {
       <header class="tarjeta-cabecera">
         <span class="puntaje ${claseNivel(op.puntaje)}" title="Coincidencia con tu perfil">${op.puntaje}%</span>
         <span class="chip">${esc(op.modalidad || "Modalidad no informada")}</span>
+        <span class="chip ${infoCierre(op).clase}">${esc(infoCierre(op).texto)}</span>
+        ${op.adjudicado ? '<span class="chip cerrado">Ya adjudicado</span>' : ""}
         <span class="chip">${esc(textoPublicacion(op.publicado))}</span>
       </header>
       <h3>${esc(op.nombre)}</h3>
@@ -362,6 +411,16 @@ function iniciar() {
   $("#vista-oportunidades").addEventListener("click", (evento) => {
     const id = evento.target.closest("[data-seguir]")?.dataset.seguir;
     if (id) seguirOportunidad(id);
+    if (evento.target.closest("[data-mas]")) {
+      estado.visibles += POR_PAGINA;
+      renderOportunidades();
+    }
+  });
+  $("#vista-oportunidades").addEventListener("change", (evento) => {
+    if (evento.target.id !== "orden") return;
+    estado.orden = evento.target.value;
+    estado.visibles = POR_PAGINA;
+    renderOportunidades();
   });
   $("#vista-mercado").addEventListener("change", (evento) => {
     if (evento.target.id !== "anio-mercado") return;

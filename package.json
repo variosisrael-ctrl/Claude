@@ -1,0 +1,11 @@
+{
+  "name": "radar-secop",
+  "private": true,
+  "description": "Radar SECOP II: sitio estático para encontrar y seguir oportunidades de contratación pública en Colombia.",
+  "scripts": {
+    "test": "node --test \"secop_radar/test/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

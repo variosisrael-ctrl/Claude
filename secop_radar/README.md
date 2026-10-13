@@ -39,9 +39,9 @@ El máximo es 100. Es una medida de relevancia para tu perfil, no una probabilid
 
 ## Limitaciones que debes conocer
 
-- **No hay fecha de cierre.** El dataset abierto no la incluye. Confirma siempre el cronograma, los requisitos habilitantes y las adendas en el proceso oficial antes de ofertar.
+- **La fecha de cierre es la de recepción de ofertas** (`fecha_de_recepcion_de`), sin hora. La hora exacta, las adendas y los requisitos habilitantes están en el proceso oficial: confírmalos siempre antes de ofertar.
 - **El estado "Abierto" no es confiable en procesos viejos** (hay procesos de años atrás que siguen marcados así). Por eso la búsqueda también filtra por fecha de publicación.
-- **Se puntúan los 500 procesos más recientes** que cumplen tu filtro y se muestran los 50 mejores. Si tu búsqueda es muy amplia, estrecha el perfil.
+- **Se revisan hasta 1.000 procesos** que cumplen tu filtro (los que cierran primero) y se muestran de 25 en 25. Si la búsqueda es muy amplia la app te avisa: estrecha el perfil.
 - **Las palabras clave se comparan tal como las escribes**, sin distinguir mayúsculas pero sí tildes: escribe "capacitación", no "capacitacion".
 - **Algunos procesos no traen código UNSPSC**; se encuentran solo por palabras clave.
 - **Valores de contratos con errores de digitación** (por ejemplo `104249364104249364`) vienen en la fuente. Se excluyen los mayores a 100 billones de COP, y los contratos sin NIT/cédula no cuentan como competidores.
