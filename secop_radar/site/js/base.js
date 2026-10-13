@@ -31,10 +31,12 @@ const formatoCOP = new Intl.NumberFormat("es-CO", { style: "currency", currency:
 const formatoNumero = new Intl.NumberFormat("es-CO");
 
 const estado = {
-  op: { datos: null, orden: "relevancia", visibles: POR_PAGINA },
+  op: { datos: null, orden: "relevancia", visibles: POR_PAGINA, mostrados: [] },
   adj: { datos: null, meses: 6, visibles: POR_PAGINA },
   anioMercado: new Date().getFullYear() - 3,
   detalle: null,
+  triaje: {}, // id de proceso -> evaluación de la IA (encaja, razón, alerta)
+  ia: {}, // id de proceso -> análisis del pliego y su evaluación, mientras la página siga abierta
 };
 
 // Cada pantalla registra aquí lo que debe hacer al mostrarse y al iniciar la página.

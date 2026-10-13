@@ -2,16 +2,19 @@
 
 // Descarga de listas como CSV (se abre directo en Excel; ver Analisis.aCSV).
 
-function descargarCSV(nombre, columnas, filas) {
-  const blob = new Blob([Analisis.aCSV(columnas, filas)], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
+function descargarArchivo(nombreCompleto, contenido, tipo) {
+  const url = URL.createObjectURL(new Blob([contenido], { type: tipo }));
   const enlace = document.createElement("a");
   enlace.href = url;
-  enlace.download = `${nombre}-${Secop.fechaIso(new Date())}.csv`;
+  enlace.download = nombreCompleto;
   document.body.appendChild(enlace);
   enlace.click();
   enlace.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function descargarCSV(nombre, columnas, filas) {
+  descargarArchivo(`${nombre}-${Secop.fechaIso(new Date())}.csv`, Analisis.aCSV(columnas, filas), "text/csv;charset=utf-8");
 }
 
 const cop = (valor) => Analisis.numeroCSV(valor, 0);

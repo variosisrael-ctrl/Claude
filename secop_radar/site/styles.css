@@ -194,3 +194,25 @@ dialog::backdrop { background: rgba(19, 41, 75, 0.55); }
   .factores li { grid-template-columns: 1fr; }
   .factor-barra { max-width: 160px; }
 }
+
+/* --- IA --- */
+.ia-nota { margin: 0 0 12px; padding: 8px 12px; font-size: 0.88rem; border-left: 4px solid var(--bajo); border-radius: 8px; background: var(--bajo-suave); }
+.ia-nota.nivel-alto { border-left-color: var(--bueno); background: var(--bueno-suave); }
+.ia-nota.nivel-medio { border-left-color: var(--medio); background: var(--medio-suave); }
+.pasos { margin: 0 0 12px; padding-left: 20px; font-size: 0.9rem; color: var(--texto-suave); }
+.ia-vivo { margin: 0; padding: 12px; max-height: 320px; overflow: auto; white-space: pre-wrap; font: inherit; font-size: 0.88rem; background: var(--bajo-suave); border-radius: 8px; }
+.texto-ia h4 { margin: 16px 0 6px; font-size: 1rem; }
+.texto-ia p, .texto-ia li { font-size: 0.92rem; }
+.texto-ia ul, .texto-ia ol { margin: 6px 0; padding-left: 20px; }
+sup.cita a { color: var(--acento); font-weight: 600; text-decoration: none; }
+.fuentes { padding-left: 20px; font-size: 0.85rem; }
+.fuentes li { padding: 2px 4px; border-radius: 4px; }
+.fuentes li.resaltada { background: var(--medio-suave); }
+.error-texto { color: var(--peligro); }
+input[type="file"] { padding: 6px; }
+#vista-empresa { display: grid; gap: 16px; }
+#vista-empresa[hidden] { display: none; }
+
+/* El atributo hidden debe ganarle a cualquier regla de display (botones, tarjetas, etc.). */
+[hidden] { display: none !important; }
+.panel .acciones { margin-bottom: 12px; }

@@ -49,6 +49,7 @@ function renderOportunidades() {
 
   const ordenados = [...datos.resultados].sort(ORDENES[orden].comparar);
   const mostrados = ordenados.slice(0, visibles);
+  estado.op.mostrados = mostrados;
   vista.innerHTML = `
     ${datos.limite_alcanzado ? `<p class="aviso-limite">Tu perfil coincide con más de ${formatoNumero.format(datos.filas_revisadas)} procesos y solo
       revisamos ese tope. Estrecha las palabras clave, los códigos o el presupuesto para no perder ninguno.</p>` : ""}
@@ -61,7 +62,9 @@ function renderOportunidades() {
         </select>
       </label>
       <button class="boton" data-exportar="oportunidades">Descargar CSV</button>
+      <button class="boton primario-suave" data-triaje>Evaluar con IA los que ves</button>
     </div>
+    <p id="estado-triaje" class="ayuda" role="status"></p>
     <div class="lista">${mostrados.map(tarjetaOportunidad).join("")}</div>
     ${ordenados.length > mostrados.length
       ? `<p class="mas"><button class="boton" data-mas>Mostrar más (${ordenados.length - mostrados.length} restantes)</button></p>`
@@ -90,6 +93,7 @@ function tarjetaOportunidad(op) {
         <div><dt>Referencia</dt><dd>${esc(op.referencia || "—")}</dd></div>
       </dl>
       ${op.razones.length ? `<ul class="razones">${op.razones.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
+      ${notaTriaje(op)}
       <footer class="acciones">
         <button class="boton primario-suave" data-detalle="${esc(op.id)}">Competencia y análisis</button>
         ${enlaceSecop(op.url)}
