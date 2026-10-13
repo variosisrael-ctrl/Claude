@@ -1,16 +1,20 @@
 # Radar SECOP II
 
-App web local para encontrar oportunidades de contratación pública en Colombia, conocer a tu competencia y hacer seguimiento a los procesos a los que quieres ofertar. Usa los datos abiertos de SECOP II publicados en [datos.gov.co](https://www.datos.gov.co); no necesita cuenta ni instalar dependencias (solo Python 3; probada con 3.13).
+App web para encontrar oportunidades de contratación pública en Colombia, conocer a tu competencia y hacer seguimiento a los procesos a los que quieres ofertar. Usa los datos abiertos de SECOP II publicados en [datos.gov.co](https://www.datos.gov.co).
 
-## Cómo ejecutarla
+Es un sitio estático (HTML, CSS y JavaScript sin dependencias ni paso de compilación): el navegador consulta directamente a datos.gov.co, que permite ese acceso. No hay servidor propio, base de datos ni cuentas.
 
-```bash
-python3 secop_radar/server.py
-```
+## Cómo abrirla
 
-Abre <http://127.0.0.1:8000> (o el puerto de la variable `PORT`).
+**Sin instalar nada:** abre `secop_radar/site/index.html` con doble clic. Funciona desde el disco, solo necesita internet.
 
-Opcional: si tienes un [app token de Socrata](https://dev.socrata.com/docs/app-tokens.html), expórtalo como `SOCRATA_APP_TOKEN` para tener límites de consulta más holgados.
+**Como página web con su propia dirección (GitHub Pages):**
+
+1. Fusiona el PR en `main`.
+2. En el repositorio ve a **Settings → Pages** y en **Source** elige **GitHub Actions**. Se hace una sola vez.
+3. El flujo `.github/workflows/pages.yml` publica la carpeta `secop_radar/site` en cada cambio a `main`. La dirección queda en `https://<usuario>.github.io/<repositorio>/`; también puedes lanzarlo a mano desde la pestaña **Actions**.
+
+Ten en cuenta que una página de GitHub Pages es pública en internet, también cuando el repositorio es privado, y que usar Pages con repositorios privados depende del plan de GitHub. Lo que cada persona escribe y guarda se queda en su propio navegador.
 
 ## Qué hace
 
@@ -41,21 +45,25 @@ El máximo es 100. Es una medida de relevancia para tu perfil, no una probabilid
 - **Las palabras clave se comparan tal como las escribes**, sin distinguir mayúsculas pero sí tildes: escribe "capacitación", no "capacitacion".
 - **Algunos procesos no traen código UNSPSC**; se encuentran solo por palabras clave.
 - **Valores de contratos con errores de digitación** (por ejemplo `104249364104249364`) vienen en la fuente. Se excluyen los mayores a 100 billones de COP, y los contratos sin NIT/cédula no cuentan como competidores.
-- **El análisis de mercado es lento la primera vez** (20 segundos o más) porque recorre millones de contratos. Las consultas repetidas se guardan en memoria 10 minutos.
+- **El análisis de mercado es lento la primera vez** (20 segundos o más) porque recorre millones de contratos. Las consultas repetidas se guardan en memoria 10 minutos mientras la página siga abierta.
+- **datos.gov.co puede limitar las consultas** hechas sin token de aplicación. Si aparece un error de la fuente, espera un momento y reintenta.
 - La lista de requisitos de la oferta es una **plantilla general**; cada proceso tiene los suyos en el pliego de condiciones.
 
 Esta herramienta ayuda a encontrar y priorizar oportunidades; no presenta ofertas ni garantiza adjudicaciones.
 
 ## Pruebas
 
+Requieren Node (probadas con la versión 22; la app en sí no necesita Node):
+
 ```bash
-python3 -m unittest discover -s secop_radar -v
+node --test secop_radar/test/secop.test.js
 ```
 
-Las pruebas no usan la red: simulan las respuestas de datos.gov.co.
+No usan la red: simulan las respuestas de datos.gov.co.
 
 ## Estructura
 
-- `secop.py`: validación de entradas, construcción de consultas SoQL, puntuación e inteligencia de mercado.
-- `server.py`: servidor local (solo escucha en 127.0.0.1) con `/api/oportunidades` y `/api/mercado`.
-- `static/`: interfaz (HTML, CSS y JavaScript sin dependencias ni paso de compilación).
+- `site/secop.js`: validación de entradas, construcción de consultas SoQL, puntuación e inteligencia de mercado. Funciona en el navegador y en Node.
+- `site/index.html`, `site/app.js`, `site/styles.css`: interfaz.
+- `test/secop.test.js`: pruebas de la lógica.
+- `../.github/workflows/pages.yml`: publicación en GitHub Pages.

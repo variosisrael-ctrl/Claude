@@ -71,13 +71,6 @@ function fechaCorta(iso) {
   return new Date(iso + "T00:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" });
 }
 
-async function pedirJSON(url) {
-  const respuesta = await fetch(url);
-  const datos = await respuesta.json().catch(() => ({}));
-  if (!respuesta.ok) throw new Error(datos.error || `Error ${respuesta.status}`);
-  return datos;
-}
-
 // --- Perfil -------------------------------------------------------------------
 
 const perfilDelFormulario = () => ({
@@ -94,13 +87,8 @@ function cargarPerfilEnFormulario() {
   $("#competitivos").checked = perfil.competitivos !== "0";
 }
 
-function aParametros(valores) {
-  const parametros = new URLSearchParams();
-  Object.entries(valores).forEach(([clave, valor]) => {
-    if (valor !== "" && valor !== undefined) parametros.set(clave, valor);
-  });
-  return parametros;
-}
+const aParametros = (valores) =>
+  Object.fromEntries(Object.entries(valores).filter(([, valor]) => valor !== "" && valor !== undefined));
 
 // --- Oportunidades ------------------------------------------------------------
 
@@ -116,7 +104,7 @@ async function buscarOportunidades() {
   }
   vista.innerHTML = mensaje("Consultando SECOP II…");
   try {
-    estado.datosBusqueda = await pedirJSON(`/api/oportunidades?${aParametros(perfil)}`);
+    estado.datosBusqueda = await Secop.buscarOportunidades(aParametros(perfil));
     renderOportunidades();
   } catch (error) {
     vista.innerHTML = mensaje(error.message, "error");
@@ -316,7 +304,7 @@ async function cargarMercado() {
       competitivos: perfil.competitivos,
       desde: estado.anioMercado,
     });
-    contenido.innerHTML = renderMercado(await pedirJSON(`/api/mercado?${parametros}`));
+    contenido.innerHTML = renderMercado(await Secop.inteligenciaMercado(parametros));
   } catch (error) {
     contenido.innerHTML = mensaje(error.message, "error");
   }
