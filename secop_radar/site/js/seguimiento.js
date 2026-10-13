@@ -4,6 +4,12 @@
 
 const seguimiento = () => leer(CLAVE_SEGUIMIENTO, []);
 
+/** Guarda la lista y avisa a quien la necesita (p. ej. las alertas de cambios en los procesos que sigues). */
+function guardarSeguimiento(lista) {
+  guardar(CLAVE_SEGUIMIENTO, lista);
+  Radar.alCambiarSeguimiento.forEach((alCambiar) => alCambiar());
+}
+
 function actualizarConteo() {
   const total = seguimiento().length;
   $("#conteo-seguimiento").textContent = total ? String(total) : "";
@@ -30,7 +36,7 @@ function seguirOportunidad(id) {
     nota: "",
     requisitos: REQUISITOS.map(() => false),
   });
-  guardar(CLAVE_SEGUIMIENTO, lista);
+  guardarSeguimiento(lista);
   actualizarConteo();
   renderOportunidades();
 }
@@ -93,7 +99,7 @@ function actualizarSeguimiento(id, cambiar) {
   const elemento = lista.find((s) => s.id === id);
   if (!elemento) return;
   cambiar(elemento);
-  guardar(CLAVE_SEGUIMIENTO, lista);
+  guardarSeguimiento(lista);
 }
 
 function alCambiarSeguimiento(evento) {
@@ -113,7 +119,7 @@ function alCambiarSeguimiento(evento) {
 }
 
 function quitarSeguimiento(id) {
-  guardar(CLAVE_SEGUIMIENTO, seguimiento().filter((s) => s.id !== id));
+  guardarSeguimiento(seguimiento().filter((s) => s.id !== id));
   actualizarConteo();
   renderSeguimiento();
 }

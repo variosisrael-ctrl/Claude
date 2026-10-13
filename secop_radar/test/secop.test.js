@@ -229,6 +229,41 @@ test("casos de uso con datos.gov.co simulado", async (t) => {
     assert.equal(llamadas[0].parametros.$order, "fecha_de_recepcion_de ASC");
   });
 
+  await t.test("buscarProcesosPorId agrupa por proceso en el servidor y solo informa el ganador si es uno", async () => {
+    const base = { cierre_max: "2026-10-20T00:00:00.000", adjudicado_max: "No", estado_max: "Publicado", n_ganadores: "1", nombre_del_procedimiento: "P", entidad: "E" };
+    const grupos = [
+      { id_del_proceso: "CO1.REQ.1", ...base },
+      { id_del_proceso: "CO1.REQ.2", ...base, estado_max: "Cancelado" },
+      { id_del_proceso: "CO1.REQ.3", ...base, adjudicado_max: "Si", fecha_adj_max: "2026-10-02T00:00:00.000", valor_adj_max: "5000", ganador_max: "GANADOR SAS", n_ganadores: "1" },
+      { id_del_proceso: "CO1.REQ.4", ...base, adjudicado_max: "Si", valor_adj_max: "9999", ganador_max: "UNO SAS", n_ganadores: "3" },
+      { id_del_proceso: "CO1.REQ.1", ...base, adjudicado_max: "Si", ganador_max: "OTRO", valor_adj_max: "7", n_ganadores: "1" },
+      { nombre_del_procedimiento: "sin identificador" },
+    ];
+    const { cliente, llamadas } = clienteFalso(() => grupos);
+    const resultado = await cliente.buscarProcesosPorId(["CO1.REQ.1", "CO1.REQ.2", "CO1.REQ.1", "x' OR 1=1", "a"]);
+
+    assert.deepEqual([...resultado.keys()], ["CO1.REQ.1", "CO1.REQ.2", "CO1.REQ.3", "CO1.REQ.4"]);
+    assert.equal(resultado.get("CO1.REQ.2").estado_procedimiento, "Cancelado");
+    assert.equal(resultado.get("CO1.REQ.1").adjudicado, true, "si alguna fila del proceso está adjudicada, lo está");
+    const uno = resultado.get("CO1.REQ.3");
+    assert.deepEqual([uno.adjudicado, uno.ganador, uno.valor_adjudicado, uno.fecha_adjudicacion, uno.cierre], [true, "GANADOR SAS", 5000, "2026-10-02", "2026-10-20"]);
+    const varios = resultado.get("CO1.REQ.4");
+    assert.deepEqual([varios.adjudicado, varios.ganador, varios.valor_adjudicado], [true, null, null], "con varios ganadores no se inventa uno");
+
+    assert.equal(llamadas.length, 1);
+    assert.equal(llamadas[0].parametros.$where, "id_del_proceso in ('CO1.REQ.1','CO1.REQ.2')", "descarta identificadores inválidos y repetidos");
+    assert.equal(llamadas[0].parametros.$group, "id_del_proceso,nombre_del_procedimiento,entidad,urlproceso");
+    assert.ok(llamadas[0].parametros.$select.includes("count(distinct nombre_del_proveedor) as n_ganadores"));
+    for (const alias of llamadas[0].parametros.$select.split(",").filter((c) => c.includes(" as "))) {
+      assert.ok(!/ as (adjudicado|entidad|id_del_proceso)$/.test(alias), "un alias no puede llamarse como una columna");
+    }
+
+    const muchos = Array.from({ length: 250 }, (_, i) => `CO1.REQ.${i + 10}`);
+    const { cliente: otro, llamadas: otras } = clienteFalso(() => []);
+    await otro.buscarProcesosPorId(muchos);
+    assert.equal(otras.length, 3, "lotes de 100");
+  });
+
   await t.test("el mercado convierte texto de la fuente en números y filtra por consulta", async () => {
     const respuestas = {
       nombre_entidad: [{ nombre_entidad: "Alcaldía X", contratos: "12", valor: "5414026672.5" }],

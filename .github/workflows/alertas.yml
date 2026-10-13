@@ -25,7 +25,7 @@ concurrency:
 jobs:
   alertas:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20 # hasta 50 alertas, cada una con su consulta a SECOP II
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -39,7 +39,10 @@ jobs:
           restore-keys: alertas-estado-
       - name: Buscar y avisar
         env:
+          # Las alertas que se administran desde la página viven en un gist secreto; ALERTAS_BUSQUEDAS es la alternativa manual.
+          ALERTAS_GIST_ID: ${{ secrets.ALERTAS_GIST_ID }}
           ALERTAS_BUSQUEDAS: ${{ secrets.ALERTAS_BUSQUEDAS }}
+          GITHUB_TOKEN: ${{ github.token }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ALERTAS_APP_URL: ${{ secrets.ALERTAS_APP_URL }}
