@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Radar SECOP II</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="encabezado">
+    <h1>Radar SECOP II</h1>
+    <p>Encuentra oportunidades de contratación pública en Colombia, conoce a tu competencia y sigue tus procesos.</p>
+  </header>
+
+  <main class="contenedor">
+    <aside class="panel" aria-label="Perfil de búsqueda">
+      <form id="formulario">
+        <h2>Tu perfil</h2>
+
+        <label>Palabras clave <span class="ayuda">separadas por coma; escríbelas con tildes</span>
+          <input id="palabras" autocomplete="off" placeholder="mantenimiento, software, capacitación">
+        </label>
+
+        <label>Códigos UNSPSC <span class="ayuda">completo (80111600) o prefijo (8011)</span>
+          <input id="codigos" autocomplete="off" placeholder="8011, 72151">
+        </label>
+
+        <label>Departamento <span class="ayuda">opcional</span>
+          <input id="departamento" autocomplete="off" placeholder="Antioquia">
+        </label>
+
+        <div class="fila">
+          <label>Presupuesto mínimo (COP)
+            <input id="min" type="number" min="0" step="100000" inputmode="numeric">
+          </label>
+          <label>Presupuesto máximo (COP)
+            <input id="max" type="number" min="0" step="100000" inputmode="numeric">
+          </label>
+        </div>
+
+        <label>Publicados en los últimos
+          <select id="dias">
+            <option value="7">7 días</option>
+            <option value="15">15 días</option>
+            <option value="30" selected>30 días</option>
+            <option value="60">60 días</option>
+            <option value="90">90 días</option>
+          </select>
+        </label>
+
+        <label class="casilla">
+          <input id="competitivos" type="checkbox" checked>
+          Solo procesos competitivos
+          <span class="ayuda">Excluye contratación directa y régimen especial: allí la entidad ya eligió a quién contratar.</span>
+        </label>
+
+        <button type="submit" class="boton primario">Buscar oportunidades</button>
+        <p class="ayuda">Tu perfil y tu seguimiento se guardan solo en este navegador.</p>
+      </form>
+    </aside>
+
+    <section class="principal">
+      <nav class="pestanas" role="tablist" aria-label="Secciones">
+        <button role="tab" data-tab="oportunidades" aria-selected="true">Oportunidades</button>
+        <button role="tab" data-tab="mercado" aria-selected="false">Mercado y competencia</button>
+        <button role="tab" data-tab="seguimiento" aria-selected="false">Mi seguimiento <span id="conteo-seguimiento" class="conteo"></span></button>
+      </nav>
+
+      <div id="vista-oportunidades" class="vista"></div>
+      <div id="vista-mercado" class="vista" hidden></div>
+      <div id="vista-seguimiento" class="vista" hidden></div>
+
+      <p class="aviso">
+        Datos abiertos de SECOP II en datos.gov.co. Este dataset no incluye la fecha de cierre:
+        confirma siempre el cronograma, los requisitos y las adendas en el proceso oficial antes de ofertar.
+      </p>
+    </section>
+  </main>
+
+  <script src="secop.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
