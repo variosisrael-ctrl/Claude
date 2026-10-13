@@ -1,0 +1,52 @@
+name: Alertas de Telegram
+
+# Busca procesos nuevos con las búsquedas del equipo y los avisa por Telegram. Ver alertas/README.md.
+# Ojo: este repositorio y sus registros son públicos. Las búsquedas viven en un secreto (enmascarado) y el programa
+# solo registra conteos, nunca nombres de procesos ni de búsquedas.
+
+on:
+  schedule:
+    # 7:00 y 17:00 hora de Colombia (UTC-5, sin horario de verano). GitHub puede retrasar unos minutos las ejecuciones.
+    - cron: "0 12,22 * * *"
+  workflow_dispatch:
+    inputs:
+      enviar_todo:
+        description: "Avisar también los procesos que ya están abiertos (útil la primera vez)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alertas
+  cancel-in-progress: false
+
+jobs:
+  alertas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Qué procesos ya se avisaron: se guarda en la caché de Actions (no en el repositorio, que es público).
+      - uses: actions/cache/restore@v4
+        with:
+          path: alertas/estado.json
+          key: alertas-estado-${{ github.run_id }}
+          restore-keys: alertas-estado-
+      - name: Buscar y avisar
+        env:
+          ALERTAS_BUSQUEDAS: ${{ secrets.ALERTAS_BUSQUEDAS }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALERTAS_APP_URL: ${{ secrets.ALERTAS_APP_URL }}
+          ALERTAS_ENVIAR_TODO: ${{ inputs.enviar_todo && '1' || '0' }}
+        run: node alertas/alertas.js
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: alertas/estado.json
+          key: alertas-estado-${{ github.run_id }}

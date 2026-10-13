@@ -78,11 +78,34 @@ async function copiarEnlace() {
   }
 }
 
+/** Copia el JSON para el secreto ALERTAS_BUSQUEDAS de GitHub con las búsquedas guardadas (o la actual). */
+async function copiarParaAlertas() {
+  let lista = busquedasGuardadas();
+  if (!lista.length) {
+    const perfil = perfilDelFormulario();
+    if (!perfilTieneAlcance(perfil)) return mostrarEstadoBusquedas("Guarda al menos una búsqueda (o escribe palabras clave) para generar la configuración.");
+    lista = [{ nombre: "Mi búsqueda", perfil }];
+  }
+  const texto = Analisis.aConfiguracionAlertas(lista);
+  const campo = $("#enlace-compartir");
+  try {
+    await navigator.clipboard.writeText(texto);
+    campo.hidden = true;
+    mostrarEstadoBusquedas(`Configuración de ${plural(lista.length, "búsqueda", "búsquedas")} copiada. Pégala en el secreto ALERTAS_BUSQUEDAS de GitHub.`);
+  } catch {
+    campo.hidden = false;
+    campo.value = texto;
+    campo.select();
+    mostrarEstadoBusquedas("Copia el texto de abajo (Ctrl+C) y pégalo en el secreto ALERTAS_BUSQUEDAS de GitHub.");
+  }
+}
+
 function iniciarBusquedas() {
   renderBusquedas();
   $("#guardar-busqueda").addEventListener("click", guardarBusquedaActual);
   $("#cargar-busqueda").addEventListener("click", cargarBusquedaElegida);
   $("#borrar-busqueda").addEventListener("click", borrarBusquedaElegida);
   $("#copiar-enlace").addEventListener("click", copiarEnlace);
+  $("#copiar-alertas").addEventListener("click", copiarParaAlertas);
 }
 registrarInicio(iniciarBusquedas);

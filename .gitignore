@@ -1,0 +1,3 @@
+
+# Estado de las alertas (se guarda en la caché de GitHub Actions, no en el repositorio)
+alertas/estado.json

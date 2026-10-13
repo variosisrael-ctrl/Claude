@@ -241,8 +241,31 @@
     return "﻿" + lineas.join("\r\n") + "\r\n";
   }
 
+  // --- Alertas -----------------------------------------------------------------
+
+  /**
+   * Texto JSON para el secreto ALERTAS_BUSQUEDAS de GitHub (ver alertas/README.md), a partir de las búsquedas
+   * guardadas: [{nombre, perfil: {palabras, codigos, ...}}]. Va en una sola línea para que GitHub lo enmascare bien.
+   */
+  function aConfiguracionAlertas(busquedas) {
+    return JSON.stringify(
+      busquedas.map((b) => ({
+        nombre: b.nombre,
+        palabras: b.perfil.palabras || "",
+        codigos: b.perfil.codigos || "",
+        departamento: b.perfil.departamento || "",
+        min: b.perfil.min || "",
+        max: b.perfil.max || "",
+        competitivos: b.perfil.competitivos === "0" ? "0" : "1",
+        dias: "15",
+        minimo: 40,
+      }))
+    );
+  }
+
   return {
     MIN_PROCESOS,
+    aConfiguracionAlertas,
     mediana,
     promedio,
     descuento,
