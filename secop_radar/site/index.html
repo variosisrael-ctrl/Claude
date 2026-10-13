@@ -13,66 +13,91 @@
   </header>
 
   <main class="contenedor">
-    <aside class="panel" aria-label="Perfil de búsqueda">
-      <form id="formulario">
-        <h2>Tu perfil</h2>
+    <aside class="lateral" aria-label="Búsqueda">
+      <div class="panel">
+        <form id="formulario">
+          <h2>Tu perfil</h2>
 
-        <label>Palabras clave <span class="ayuda">separadas por coma; escríbelas con tildes</span>
-          <input id="palabras" autocomplete="off" placeholder="mantenimiento, software, capacitación">
-        </label>
-
-        <label>Códigos UNSPSC <span class="ayuda">completo (80111600) o prefijo (8011)</span>
-          <input id="codigos" autocomplete="off" placeholder="8011, 72151">
-        </label>
-
-        <label>Departamento <span class="ayuda">opcional</span>
-          <input id="departamento" autocomplete="off" placeholder="Antioquia">
-        </label>
-
-        <div class="fila">
-          <label>Presupuesto mínimo (COP)
-            <input id="min" type="number" min="0" step="100000" inputmode="numeric">
+          <label>Palabras clave <span class="ayuda">separadas por coma; escríbelas con tildes</span>
+            <input id="palabras" autocomplete="off" placeholder="mantenimiento, software, capacitación">
           </label>
-          <label>Presupuesto máximo (COP)
-            <input id="max" type="number" min="0" step="100000" inputmode="numeric">
+
+          <label>Códigos UNSPSC <span class="ayuda">completo (80111600) o prefijo (8011)</span>
+            <input id="codigos" autocomplete="off" placeholder="8011, 72151">
           </label>
+
+          <label>Departamento <span class="ayuda">opcional</span>
+            <input id="departamento" autocomplete="off" placeholder="Antioquia">
+          </label>
+
+          <div class="fila">
+            <label>Presupuesto mínimo (COP)
+              <input id="min" type="number" min="0" step="100000" inputmode="numeric">
+            </label>
+            <label>Presupuesto máximo (COP)
+              <input id="max" type="number" min="0" step="100000" inputmode="numeric">
+            </label>
+          </div>
+
+          <label>Publicados en los últimos
+            <select id="dias">
+              <option value="7">7 días</option>
+              <option value="15">15 días</option>
+              <option value="30" selected>30 días</option>
+              <option value="60">60 días</option>
+              <option value="90">90 días</option>
+            </select>
+          </label>
+
+          <label class="casilla">
+            <input id="abiertos" type="checkbox" checked>
+            Solo los que aún reciben ofertas
+            <span class="ayuda">Oculta procesos con plazo vencido o ya adjudicados.</span>
+          </label>
+
+          <label class="casilla">
+            <input id="competitivos" type="checkbox" checked>
+            Solo procesos competitivos
+            <span class="ayuda">Excluye contratación directa y régimen especial: allí la entidad ya eligió a quién contratar.</span>
+          </label>
+
+          <button type="submit" class="boton primario">Buscar oportunidades</button>
+          <p class="ayuda">Tu perfil y tu seguimiento se guardan solo en este navegador.</p>
+        </form>
+      </div>
+
+      <div class="panel" aria-labelledby="titulo-busquedas">
+        <h2 id="titulo-busquedas">Mis búsquedas</h2>
+        <label>Guardadas
+          <select id="busquedas-guardadas"><option value="">Elige una…</option></select>
+        </label>
+        <div class="acciones">
+          <button type="button" class="boton" id="cargar-busqueda">Cargar</button>
+          <button type="button" class="boton peligro" id="borrar-busqueda">Borrar</button>
         </div>
-
-        <label>Publicados en los últimos
-          <select id="dias">
-            <option value="7">7 días</option>
-            <option value="15">15 días</option>
-            <option value="30" selected>30 días</option>
-            <option value="60">60 días</option>
-            <option value="90">90 días</option>
-          </select>
+        <label>Guardar la búsqueda actual como
+          <input id="nombre-busqueda" autocomplete="off" placeholder="Ej.: Mantenimiento Antioquia">
         </label>
-
-        <label class="casilla">
-          <input id="abiertos" type="checkbox" checked>
-          Solo los que aún reciben ofertas
-          <span class="ayuda">Oculta procesos con plazo vencido o ya adjudicados.</span>
-        </label>
-
-        <label class="casilla">
-          <input id="competitivos" type="checkbox" checked>
-          Solo procesos competitivos
-          <span class="ayuda">Excluye contratación directa y régimen especial: allí la entidad ya eligió a quién contratar.</span>
-        </label>
-
-        <button type="submit" class="boton primario">Buscar oportunidades</button>
-        <p class="ayuda">Tu perfil y tu seguimiento se guardan solo en este navegador.</p>
-      </form>
+        <div class="acciones">
+          <button type="button" class="boton" id="guardar-busqueda">Guardar</button>
+          <button type="button" class="boton" id="copiar-enlace">Copiar enlace</button>
+        </div>
+        <input id="enlace-compartir" class="enlace-compartir" readonly hidden aria-label="Enlace para compartir">
+        <p id="estado-busquedas" class="ayuda" role="status"></p>
+        <p class="ayuda">Se guardan en este navegador. Para compartir una búsqueda con tu equipo, copia su enlace.</p>
+      </div>
     </aside>
 
     <section class="principal">
       <nav class="pestanas" role="tablist" aria-label="Secciones">
         <button role="tab" data-tab="oportunidades" aria-selected="true">Oportunidades</button>
+        <button role="tab" data-tab="adjudicados" aria-selected="false">Adjudicados y ejecución</button>
         <button role="tab" data-tab="mercado" aria-selected="false">Mercado y competencia</button>
         <button role="tab" data-tab="seguimiento" aria-selected="false">Mi seguimiento <span id="conteo-seguimiento" class="conteo"></span></button>
       </nav>
 
       <div id="vista-oportunidades" class="vista"></div>
+      <div id="vista-adjudicados" class="vista" hidden></div>
       <div id="vista-mercado" class="vista" hidden></div>
       <div id="vista-seguimiento" class="vista" hidden></div>
 
@@ -83,7 +108,24 @@
     </section>
   </main>
 
+  <dialog id="detalle" aria-labelledby="detalle-titulo">
+    <header class="dialogo-cabecera">
+      <h2 id="detalle-titulo"></h2>
+      <button type="button" class="boton" data-cerrar-detalle>Cerrar</button>
+    </header>
+    <div id="detalle-contenido"></div>
+  </dialog>
+
   <script src="secop.js"></script>
-  <script src="app.js"></script>
+  <script src="analisis.js"></script>
+  <script src="js/base.js"></script>
+  <script src="js/exportar.js"></script>
+  <script src="js/oportunidades.js"></script>
+  <script src="js/adjudicados.js"></script>
+  <script src="js/mercado.js"></script>
+  <script src="js/seguimiento.js"></script>
+  <script src="js/detalle.js"></script>
+  <script src="js/busquedas.js"></script>
+  <script src="js/inicio.js"></script>
 </body>
 </html>

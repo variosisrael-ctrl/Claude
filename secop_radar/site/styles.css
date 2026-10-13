@@ -44,6 +44,7 @@ body {
   .contenedor { grid-template-columns: 1fr; padding: 16px; }
 }
 
+.lateral { display: grid; gap: 16px; }
 .panel, .tarjeta {
   background: var(--superficie);
   border: 1px solid var(--borde);
@@ -154,3 +155,42 @@ summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; color: var(--ace
 .campo-inline { margin: 0; }
 
 .aviso { margin-top: 20px; font-size: 0.8rem; color: var(--texto-suave); }
+
+/* --- Adjudicados, detalle y dificultad --- */
+.boton.primario-suave { background: var(--acento-suave); }
+.tabla-ancha { min-width: 860px; }
+.tabla-ancha td { vertical-align: top; }
+.tabla-ancha .ayuda { margin-top: 2px; }
+.acciones-fila { display: flex; flex-direction: column; gap: 6px; align-items: stretch; min-width: 130px; }
+.enlace-compartir { margin-bottom: 8px; font-size: 0.8rem; }
+
+dialog {
+  width: min(860px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  padding: 20px;
+  color: var(--texto);
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+}
+dialog::backdrop { background: rgba(19, 41, 75, 0.55); }
+.dialogo-cabecera { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.dialogo-cabecera h2 { margin: 0; font-size: 1.05rem; line-height: 1.3; }
+.seccion-detalle { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--borde); }
+.seccion-detalle h3 { margin-top: 0; }
+
+.dificultad { display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px; padding: 10px 14px; border-radius: 8px; border-left: 5px solid var(--bajo); background: var(--bajo-suave); }
+.dificultad.nivel-baja { border-left-color: var(--bueno); background: var(--bueno-suave); }
+.dificultad.nivel-media { border-left-color: var(--medio); background: var(--medio-suave); }
+.dificultad.nivel-alta { border-left-color: var(--peligro); background: #fbe9e7; }
+.factores { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 10px; }
+.factores li { display: grid; grid-template-columns: 1fr 120px; gap: 2px 12px; align-items: center; }
+.factores .ayuda { grid-column: 1 / -1; }
+.factor-titulo { font-weight: 600; font-size: 0.9rem; }
+.factor-barra { display: block; height: 6px; background: var(--bajo-suave); border-radius: 3px; overflow: hidden; }
+.factor-barra span { display: block; height: 100%; background: var(--acento); }
+
+@media (max-width: 560px) {
+  .factores li { grid-template-columns: 1fr; }
+  .factor-barra { max-width: 160px; }
+}
