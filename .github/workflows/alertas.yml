@@ -6,8 +6,9 @@ name: Alertas de Telegram
 
 on:
   schedule:
-    # 7:00 y 17:00 hora de Colombia (UTC-5, sin horario de verano). GitHub puede retrasar unos minutos las ejecuciones.
-    - cron: "0 12,22 * * *"
+    # 7:07 y 17:07 hora de Colombia (UTC-5, sin horario de verano). GitHub retrasa o descarta más las ejecuciones que
+    # empiezan en punto (hay mucha carga), por eso el minuto 7. El resumen de la mañana sale en la primera.
+    - cron: "7 12,22 * * *"
   workflow_dispatch:
     inputs:
       enviar_todo:

@@ -589,7 +589,7 @@ test("cambios en los procesos que se siguen", async (t) => {
 test("programa de línea de comandos con el gist de alertas (GitHub simulado)", async (t) => {
   const { spawn } = require("node:child_process");
   const programa = path.join(__dirname, "..", "alertas.js");
-  const ID = "aa11bb22cc33dd44";
+  const ID = "aa11bb22cc33dd44ee55ff6677889900"; // un identificador real de gist tiene 32 caracteres
   const archivo = (contenido) => ({ files: { "radar-alertas.json": { content: contenido } } });
 
   /** Levanta un GitHub falso, corre el programa y devuelve su salida y las peticiones recibidas. */
@@ -623,6 +623,28 @@ test("programa de línea de comandos con el gist de alertas (GitHub simulado)", 
     assert.equal(r.status, 0);
     assert.match(r.salida, /No hay alertas activas/);
     assert.deepEqual(r.peticiones.map((p) => p.url), [`/gists/${ID}`], "solo leyó el gist: nada de Telegram");
+  });
+
+  await t.test("acepta el identificador aunque se haya pegado con la dirección completa del gist", async () => {
+    const contenido = JSON.stringify({ version: 1 });
+    for (const pegado of [`https://gist.github.com/persona/${ID}`, ` ${ID}\n`, `"${ID}"`]) {
+      const r = await correr({ ALERTAS_GIST_ID: pegado }, ({ url }) => (url === `/gists/${ID}` ? { cuerpo: archivo(contenido) } : { status: 500 }));
+      assert.equal(r.status, 0, r.salida);
+      assert.deepEqual(r.peticiones.map((p) => p.url), [`/gists/${ID}`]);
+    }
+  });
+
+  await t.test("un valor que no es un identificador se explica sin repetirlo y no llega a GitHub", async () => {
+    const sin = await correr({ ALERTAS_GIST_ID: "esto-no-es-un-id-SECRETO" }, () => ({ status: 500 }));
+    assert.equal(sin.status, 1);
+    assert.match(sin.salida, /::error::El secreto ALERTAS_GIST_ID no tiene un identificador de gist válido/);
+    assert.equal(sin.peticiones.length, 0);
+    assert.ok(!sin.salida.includes("SECRETO"));
+
+    const respaldo = await correr({ ALERTAS_GIST_ID: "esto-no-es-un-id-SECRETO", ALERTAS_BUSQUEDAS: "respaldo-no-es-json" }, () => ({ status: 500 }));
+    assert.match(respaldo.salida, /::warning::No se pudo leer el gist \(El secreto ALERTAS_GIST_ID no tiene un identificador de gist válido/);
+    assert.match(respaldo.salida, /::error::ALERTAS_BUSQUEDAS no es un JSON válido/, "usó el respaldo");
+    assert.ok(!respaldo.salida.includes("SECRETO"));
   });
 
   await t.test("lee el gist con el token del flujo y, si GitHub lo rechaza, sin token", async () => {

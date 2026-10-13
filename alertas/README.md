@@ -134,7 +134,7 @@ En el repositorio ve a **Actions → Alertas de Telegram → Run workflow**.
 - **Mensajes largos.** Cada mensaje agrupa hasta 8 procesos y respeta el límite de Telegram; si Telegram responde «demasiadas solicitudes», el programa espera y reintenta.
 - **Solo procesos abiertos.** Se consideran los que aún reciben ofertas (fecha de cierre futura y sin adjudicar). Lo ya adjudicado se consulta en la pestaña *Adjudicados y ejecución* de la página.
 - **La coincidencia es una guía, no un veredicto.** Mide cuánto se parece el proceso a tus palabras y códigos; no dice si te conviene ni si lo vas a ganar. Abre el proceso y lee el pliego antes de decidir.
-- **Las ejecuciones programadas pueden retrasarse** unos minutos cuando GitHub está saturado, y **GitHub las desactiva si el repositorio pasa 60 días sin actividad**. Si un día dejan de llegar los avisos, entra a la pestaña Actions y pulsa «Enable workflow».
+- **Las ejecuciones programadas salen a las 7:07 a. m. y 5:07 p. m.** (no en punto: GitHub retrasa o descarta más las que empiezan a la hora exacta). **Pueden retrasarse** aun más cuando GitHub está saturado, y **GitHub las desactiva si el repositorio pasa 60 días sin actividad**. Si un día dejan de llegar los avisos, entra a la pestaña Actions y pulsa «Enable workflow».
 - **Solo corre desde `main`.** GitHub únicamente ejecuta los flujos programados del repositorio desde su rama principal, así que las alertas arrancan cuando se fusiona el cambio que las trae.
 
 ## Privacidad
