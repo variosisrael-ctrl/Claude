@@ -33,6 +33,15 @@ function leerEstado() {
   }
 }
 
+const MENSAJE_ID_DEL_GIST =
+  "El secreto ALERTAS_GIST_ID no tiene un identificador de gist válido. Copia solo el identificador que muestra la página en «Mis alertas → Tu configuración».";
+
+/** El identificador de un gist son 32 letras y números (a-f, 0-9). Se acepta también si se pegó con la dirección completa. */
+function idDelGist(texto) {
+  const coincidencias = String(texto ?? "").match(/[a-f0-9]{20,64}/gi);
+  return coincidencias ? coincidencias[coincidencias.length - 1] : null; // en una dirección, el identificador va al final
+}
+
 /**
  * De dónde salen las alertas: del gist que administra la página (con el seguimiento de procesos) o, si no hay gist o
  * no se puede leer, del secreto ALERTAS_BUSQUEDAS escrito a mano.
@@ -41,7 +50,9 @@ async function cargarConfiguracion(env) {
   if (env.ALERTAS_GIST_ID) {
     try {
       const cliente = Gist.crearClienteGist({ token: env.GITHUB_TOKEN || null, base: env.ALERTAS_GITHUB_API || undefined });
-      const contenido = await cliente.leer(env.ALERTAS_GIST_ID.trim());
+      const id = idDelGist(env.ALERTAS_GIST_ID);
+      if (!id) throw new ErrorDeAlertas(MENSAJE_ID_DEL_GIST); // sin repetir lo que había en el secreto
+      const contenido = await cliente.leer(id);
       let datos;
       try {
         if (contenido.length > 400_000) throw new Error("demasiado grande");
