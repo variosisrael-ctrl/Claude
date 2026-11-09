@@ -304,3 +304,64 @@ test("flujo con la API simulada", async (t) => {
     assert.equal(llamadas.create.length, 0);
   });
 });
+
+test("extracción de requisitos y fechas", async (t) => {
+  const cita = (pagina, texto) => ({
+    type: "page_location", cited_text: texto, document_index: 0, document_title: "Pliego", start_page_number: pagina, end_page_number: pagina + 1,
+  });
+  const analisis = IA.renderizarAnalisis([
+    { type: "text", text: "### 2. Requisitos habilitantes\n- Liquidez mayor o igual a 1,5.", citations: [cita(12, "índice de liquidez ≥ 1,5")] },
+    { type: "text", text: "\n- Cierre el 20 de noviembre de 2026 a las 4:00 p. m.", citations: [cita(4, "cierre: 20/11/2026 16:00")] },
+  ]);
+  const requisito = (extra) => ({
+    descripcion: "Liquidez mínima de 1,5", tipo: "financiero", indicador: "liquidez", operador: ">=", valor: 1.5, unidad: "veces",
+    max_contratos: 0, codigos: [], subsanable: "no_dice", fuentes: [1], ...extra,
+  });
+
+  await t.test("el análisis conserva las notas para volver a pasarlo a la IA", () => {
+    assert.equal(
+      IA.textoConNotas(analisis.marcado),
+      "### 2. Requisitos habilitantes\n- Liquidez mayor o igual a 1,5.[1]\n- Cierre el 20 de noviembre de 2026 a las 4:00 p. m.[2]"
+    );
+    assert.equal(IA.markdownLigero(analisis.marcado), analisis.html, "el texto marcado basta para volver a dibujar el análisis");
+  });
+
+  await t.test("la solicitud pide JSON con esquema y lleva el análisis con notas", () => {
+    const s = IA.construirSolicitudExtraccion({ modelo: "claude-opus-5-5", analisis: IA.textoConNotas(analisis.marcado), proceso: { nombre: "Mantenimiento", presupuesto: 180000000 } });
+    assert.equal(s.output_config.format.schema, IA.ESQUEMA_EXTRACCION);
+    assert.match(s.messages[0].content, /Liquidez mayor o igual a 1,5\.\[1\]/);
+    assert.match(s.messages[0].content, /Presupuesto oficial: \$ 180\.000\.000 COP/);
+    assert.equal(s.messages[0].content.includes("document"), false, "no reenvía el PDF");
+  });
+
+  await t.test("descarta las notas que no existen y cuenta lo que queda sin respaldo", () => {
+    const v = IA.verificarExtraccion({
+      requisitos: [requisito(), requisito({ descripcion: "Inventado", fuentes: [9, 0] }), requisito({ descripcion: "RUP", indicador: "ninguno", valor: 0, unidad: "ninguna", fuentes: [2, 2, 1] })],
+      hitos: [{ tipo: "cierre", descripcion: "", fecha: "2026-11-20", hora: "16:00", fuentes: [2] }, { tipo: "otro", descripcion: "Visita", fecha: "", hora: "", fuentes: [] }],
+    }, analisis.fuentes);
+    assert.deepEqual(v.requisitos.map((r) => r.fuentes), [[1], [], [2, 1]]);
+    assert.deepEqual(v.hitos.map((h) => h.fuentes), [[2], []]);
+    assert.equal(v.sinFuente, 2);
+    assert.deepEqual([v.requisitos[2].indicador, v.requisitos[2].valor], ["ninguno", null]);
+  });
+
+  await t.test("un indicador sin valor o sin unidad se trata como revisión manual", () => {
+    const v = IA.verificarExtraccion({ requisitos: [requisito({ valor: 0 }), requisito({ unidad: "ninguna" })], hitos: [] }, analisis.fuentes);
+    assert.deepEqual(v.requisitos.map((r) => [r.indicador, r.valor]), [["ninguno", null], ["ninguno", null]]);
+  });
+
+  await t.test("extraerRequisitos hace una llamada y devuelve la extracción verificada con su uso", async () => {
+    const respuesta = { requisitos: [requisito({ fuentes: [1, 5] })], hitos: [] };
+    const { ia, llamadas } = clienteFalso({ mensajes: [mensaje({ content: [{ type: "text", text: JSON.stringify(respuesta) }] })] });
+    const r = await ia.extraerRequisitos({ clave: "k", modelo: "claude-opus-5-5", marcado: analisis.marcado, fuentes: analisis.fuentes, proceso: {} });
+    assert.equal(llamadas.create.length, 1);
+    assert.deepEqual(r.requisitos[0].fuentes, [1]);
+    assert.equal(r.sinFuente, 0);
+    assert.equal(r.uso.input_tokens, 40000);
+  });
+
+  await t.test("una respuesta cortada no se usa a medias", async () => {
+    const { ia } = clienteFalso({ mensajes: [mensaje({ stop_reason: "max_tokens", content: [{ type: "text", text: '{"requisitos":[' }] })] });
+    await assert.rejects(ia.extraerRequisitos({ clave: "k", modelo: "claude-opus-5-5", marcado: "a", fuentes: [], proceso: {} }), /se cortó/);
+  });
+});

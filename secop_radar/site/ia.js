@@ -6,6 +6,8 @@
  * Dos pasos separados porque la API no permite combinar citas con salida estructurada:
  *   1. analizarPliego: el PDF con citas por página (texto).
  *   2. evaluarContraEmpresa / triaje: JSON con esquema, sin citas.
+ *   3. extraerRequisitos: JSON con los requisitos y las fechas del análisis. Cada uno señala los números de nota del
+ *      paso 1, y aquí se comprueba que esas notas existan: así cada requisito queda atado a una página del pliego.
  */
 (function (raiz, fabrica) {
   if (typeof module === "object" && module.exports) module.exports = fabrica();
@@ -28,6 +30,7 @@
   const MAX_TOKENS_ANALISIS = 16000;
   const MAX_TOKENS_EVALUACION = 8000;
   const MAX_TOKENS_TRIAJE = 4000;
+  const MAX_TOKENS_EXTRACCION = 16000;
   const TAMANO_LOTE_TRIAJE = 10;
   const MAX_CARACTERES_EMPRESA = 9000;
 
@@ -249,6 +252,113 @@
     };
   }
 
+  // --- Requisitos y fechas estructurados ---------------------------------------
+
+  const SISTEMA_EXTRACCION = [
+    "Conviertes el análisis de un pliego de contratación pública colombiana en datos estructurados.",
+    "El análisis trae notas entre corchetes, como [3]: cada una remite a una cita textual del pliego.",
+    "",
+    "Reglas:",
+    "- Usa solo lo que dice el análisis. No agregues requisitos, cifras ni fechas que no estén allí.",
+    "- En «fuentes» pon los números de las notas que respaldan cada dato. Si no tiene nota, deja la lista vacía.",
+    "- Un requisito por fila. Separa cada indicador financiero y cada exigencia de experiencia.",
+    "- «tipo»: usa «ponderable» para lo que da puntaje y no habilita (factores de evaluación, apoyo a la industria nacional, criterios de desempate).",
+    "- «indicador»: usa uno distinto de «ninguno» solo cuando el requisito es un umbral numérico de ese indicador. En ese caso",
+    "  llena «operador», «valor» y «unidad». Para el endeudamiento el operador es «<=».",
+    "- «unidad»: «veces» para razones (liquidez 1,5 → valor 1.5); «porcentaje» para porcentajes (endeudamiento 70 % → valor 70);",
+    "  «cop» para pesos; «smmlv» para salarios mínimos; «porcentaje_presupuesto» cuando el umbral es un porcentaje del presupuesto oficial",
+    "  (experiencia por el 100 % del presupuesto → valor 100).",
+    "- Con indicador «ninguno» pon valor 0, operador «>=» y unidad «ninguna».",
+    "- «max_contratos»: el número máximo de contratos con que se puede acreditar la experiencia; 0 si no hay límite o no aplica.",
+    "- «codigos»: los códigos UNSPSC en que deben estar clasificados los contratos de experiencia, solo dígitos; vacío si no aplica.",
+    "- «subsanable»: «si» o «no» solo si el análisis lo dice; de lo contrario «no_dice».",
+    "- «hitos»: las fechas del cronograma. «fecha» en formato AAAA-MM-DD y «hora» en formato HH:MM de 24 horas; deja una cadena",
+    "  vacía cuando el análisis no la trae. No calcules fechas.",
+    "Escribe las descripciones en español, cortas y concretas.",
+  ].join("\n");
+
+  const ESQUEMA_EXTRACCION = {
+    type: "object",
+    properties: {
+      requisitos: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            descripcion: { type: "string" },
+            tipo: { type: "string", enum: ["juridico", "financiero", "organizacional", "experiencia", "tecnico", "documental", "ponderable", "otro"] },
+            indicador: {
+              type: "string",
+              enum: ["ninguno", "liquidez", "endeudamiento", "cobertura_intereses", "rentabilidad_patrimonio", "rentabilidad_activo", "capital_trabajo", "patrimonio", "experiencia"],
+            },
+            operador: { type: "string", enum: [">=", "<="] },
+            valor: { type: "number" },
+            unidad: { type: "string", enum: ["ninguna", "veces", "porcentaje", "cop", "smmlv", "porcentaje_presupuesto"] },
+            max_contratos: { type: "integer" },
+            codigos: { type: "array", items: { type: "string" } },
+            subsanable: { type: "string", enum: ["si", "no", "no_dice"] },
+            fuentes: { type: "array", items: { type: "integer" } },
+          },
+          required: ["descripcion", "tipo", "indicador", "operador", "valor", "unidad", "max_contratos", "codigos", "subsanable", "fuentes"],
+          additionalProperties: false,
+        },
+      },
+      hitos: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            tipo: { type: "string", enum: ["observaciones", "respuesta_observaciones", "adendas", "cierre", "informe", "subsanacion", "adjudicacion", "otro"] },
+            descripcion: { type: "string" },
+            fecha: { type: "string" },
+            hora: { type: "string" },
+            fuentes: { type: "array", items: { type: "integer" } },
+          },
+          required: ["tipo", "descripcion", "fecha", "hora", "fuentes"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["requisitos", "hitos"],
+    additionalProperties: false,
+  };
+
+  function construirSolicitudExtraccion({ modelo, analisis, proceso }) {
+    return {
+      model: modelo,
+      max_tokens: MAX_TOKENS_EXTRACCION,
+      output_config: { effort: "medium", format: { type: "json_schema", schema: ESQUEMA_EXTRACCION } },
+      system: SISTEMA_EXTRACCION,
+      messages: [{
+        role: "user",
+        content:
+          `Proceso: ${proceso?.nombre || "sin nombre"}\nPresupuesto oficial: ${dineroTexto(proceso?.presupuesto)}\n\n` +
+          `<analisis_del_pliego>\n${analisis}\n</analisis_del_pliego>\n\n` +
+          "Extrae los requisitos y las fechas del cronograma.",
+      }],
+    };
+  }
+
+  /**
+   * Comprueba la extracción contra las fuentes del análisis: descarta los números de nota que no existen y cuenta
+   * cuántos datos quedaron sin respaldo, para avisar a quien los va a validar.
+   */
+  function verificarExtraccion(extraccion, fuentes) {
+    const existentes = new Set((fuentes || []).map((f) => f.n));
+    let sinFuente = 0;
+    const conFuentes = (elemento) => {
+      const validas = [...new Set((elemento.fuentes || []).filter((n) => existentes.has(n)))];
+      if (!validas.length) sinFuente++;
+      return { ...elemento, fuentes: validas };
+    };
+    const requisitos = (extraccion?.requisitos || []).map((r) => {
+      const medible = r.indicador !== "ninguno" && r.unidad !== "ninguna" && r.valor > 0;
+      return conFuentes({ ...r, indicador: medible ? r.indicador : "ninguno", valor: medible ? r.valor : null, unidad: medible ? r.unidad : "veces" });
+    });
+    const hitos = (extraccion?.hitos || []).map(conFuentes);
+    return { requisitos, hitos, sinFuente };
+  }
+
   // --- Lectura de respuestas ---------------------------------------------------
 
   const bloquesDeTexto = (contenido) => (contenido || []).filter((b) => b.type === "text");
@@ -351,8 +461,12 @@
       const cuerpo = bloque.text.slice(0, bloque.text.length - finales.length);
       texto += cuerpo + marcas.map((n) => `${MARCA_INICIO}${n}${MARCA_FIN}`).join("") + finales;
     }
-    return { html: markdownLigero(texto), fuentes, texto: textoPlano(contenido) };
+    return { html: markdownLigero(texto), fuentes, texto: textoPlano(contenido), marcado: texto };
   }
+
+  /** El texto del análisis con las notas visibles como [n], para pasarlo de nuevo a la IA o exportarlo. */
+  const textoConNotas = (marcado) =>
+    String(marcado ?? "").replace(new RegExp(`${MARCA_INICIO}(\\d+)${MARCA_FIN}`, "g"), "[$1]");
 
   function htmlFuentes(fuentes) {
     if (!fuentes.length) return "";
@@ -470,7 +584,15 @@
       return resultados;
     }
 
-    return { probarClave, estimarTokensPliego, analizarPliego, evaluarContraEmpresa, triaje };
+    /** Convierte el análisis en requisitos y fechas con forma fija, atados a las notas del análisis. */
+    async function extraerRequisitos({ clave, modelo, marcado, fuentes, proceso }) {
+      const mensaje = await cliente(clave).messages.create(
+        construirSolicitudExtraccion({ modelo, analisis: textoConNotas(marcado), proceso })
+      );
+      return { ...verificarExtraccion(leerJSON(mensaje), fuentes), uso: mensaje.usage, modelo: mensaje.model || modelo };
+    }
+
+    return { probarClave, estimarTokensPliego, analizarPliego, evaluarContraEmpresa, triaje, extraerRequisitos };
   }
 
   return {
@@ -481,6 +603,7 @@
     CAMPOS_EMPRESA,
     ESQUEMA_EVALUACION,
     ESQUEMA_TRIAJE,
+    ESQUEMA_EXTRACCION,
     ErrorDeIA,
     estimarCosto,
     formatoUSD,
@@ -489,6 +612,9 @@
     construirSolicitudAnalisis,
     construirSolicitudEvaluacion,
     construirSolicitudTriaje,
+    construirSolicitudExtraccion,
+    verificarExtraccion,
+    textoConNotas,
     leerJSON,
     markdownLigero,
     renderizarAnalisis,

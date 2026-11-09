@@ -122,7 +122,10 @@ function renderEmpresa() {
         mejor. Se guarda en este navegador y se actualiza al salir de cada campo.</p>
       ${IA.CAMPOS_EMPRESA.map((campo) => campoEmpresa(campo, empresa[campo[0]] ?? "")).join("")}
       <p id="estado-empresa" class="ayuda" role="status"></p>
-    </section>`;
+    </section>
+    <div id="empresa-datos"></div>
+    <div id="empresa-respaldo"></div>`;
+  Radar.alDibujarEmpresa.forEach((dibujar) => dibujar());
 }
 
 function mostrarEstadoIA(texto, error = false) {

@@ -87,7 +87,7 @@ function tarjetaSeguimiento(s) {
         <textarea data-campo="nota" rows="2">${esc(s.nota)}</textarea>
       </label>
       <footer class="acciones">
-        ${s.nit_entidad ? `<button class="boton primario-suave" data-detalle="${esc(s.id)}">Competencia y análisis</button>` : ""}
+        <button class="boton primario-suave" data-detalle="${esc(s.id)}">Competencia, análisis y expediente</button>
         ${enlaceSecop(s.url)}
         <button class="boton peligro" data-quitar="${esc(s.id)}">Quitar</button>
       </footer>

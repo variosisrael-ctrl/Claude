@@ -220,3 +220,19 @@ input[type="file"] { padding: 6px; }
 .fila-doble { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 560px) { .fila-doble { grid-template-columns: minmax(0, 1fr); } }
 .vista > .panel + .panel { margin-top: 16px; }
+
+/* --- Expediente --- */
+.chip.bueno { color: var(--bueno); background: var(--bueno-suave); font-weight: 600; }
+.seccion-detalle h4 { margin: 20px 0 6px; font-size: 0.95rem; }
+.tabla-requisitos td:first-child, .tabla-requisitos th:first-child { width: 72px; }
+.tabla-requisitos td:last-child { width: 34%; }
+.tabla-requisitos .chip, .factores-decision .chip { display: inline-block; }
+.correccion { margin: 6px 0 0; padding: 0; }
+.correccion[open] { padding: 10px 12px; background: var(--bajo-suave); border-radius: 8px; }
+.tabla-edicion input, .tabla-edicion select { margin: 0 0 4px; min-width: 96px; }
+.tabla-edicion input[type="checkbox"] { min-width: 0; }
+.tabla-edicion input[data-campo-contrato="valor"] { min-width: 140px; }
+.tabla-edicion td { vertical-align: top; }
+.factores-decision { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.factores-decision .ayuda { margin-top: 2px; }
+label.boton { display: inline-block; margin: 0; }
