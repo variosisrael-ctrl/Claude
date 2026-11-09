@@ -35,6 +35,16 @@ Para tu sector: qué entidades contratan más, qué proveedores ganan más contr
 ### Mi seguimiento
 Guarda procesos con su estado (por revisar, preparando oferta, ofertada, ganada…), notas y una lista de requisitos típicos de una oferta. Se puede exportar a CSV.
 
+### Expediente del proceso
+En el detalle de cada proceso hay un expediente que se guarda en el navegador (IndexedDB) y sigue ahí al recargar la página:
+
+- **Análisis guardado.** El análisis del pliego y su evaluación quedan en el expediente. El PDF no se guarda.
+- **Requisitos del pliego.** Un botón pide a la IA convertir el análisis en una lista de requisitos con forma fija (tipo, indicador, umbral, unidad) y en las fechas del cronograma. Cada uno enlaza a la cita del pliego que lo respalda; la página comprueba que esa cita exista y avisa cuántos quedaron sin respaldo. **Nada cuenta hasta que una persona lo marca como validado**, y se puede corregir, quitar o agregar a mano.
+- **Verificación de habilitantes.** Los requisitos validados se comparan con los números de la empresa (pestaña «Empresa e IA»): liquidez, endeudamiento, cobertura de intereses, rentabilidades, capital de trabajo, patrimonio y experiencia en SMMLV. Es un cálculo, no IA, y muestra la cuenta y la brecha. La experiencia se convierte a SMMLV del año en que terminó cada contrato, se filtra por clase UNSPSC, respeta el máximo de contratos y aplica el porcentaje de participación en consorcios o uniones temporales. Lo que no es numérico (RUP, garantías, certificaciones) lo marca la persona.
+- **Cronograma.** Fechas del proceso con hora, que se marcan como confirmadas después de comprobarlas en SECOP II. Las confirmadas se descargan como calendario `.ics` (Google Calendar, Outlook, celular) con recordatorio un día antes.
+- **Decisión de ofertar o no.** Una tarjeta resume habilitantes, plazo, cronograma y competencia, y recomienda «se puede ofertar», «falta revisar» o «no conviene ofertar así». No es una probabilidad de ganar. La decisión la registra una persona con su nombre, la fecha y el motivo.
+- **Respaldo.** En «Empresa e IA» se descarga un archivo con los expedientes, el perfil de la empresa y el seguimiento, y se restaura en otro navegador. No incluye la clave de Anthropic ni el token de GitHub.
+
 ### IA con tu propia clave de Anthropic (pestaña «Empresa e IA»)
 Cada persona del equipo usa **su propia clave** de la API de Anthropic. La clave nunca pasa por un servidor nuestro: se queda en el navegador y las llamadas van directo a `api.anthropic.com`. Por defecto se borra al cerrar la pestaña; si marcas «recordar» queda en ese navegador (no lo hagas en un computador compartido).
 
@@ -77,7 +87,11 @@ Viene activado por defecto. En contratación directa, régimen especial, solicit
 - **Los oferentes salen del dataset de proponentes**, que tiene retraso y vacíos: el conteo es una aproximación. Los valores de contratos con errores de digitación (por ejemplo `104249364104249364`) vienen en la fuente; se excluyen los mayores a 100 billones de COP y los contratos sin NIT o cédula no cuentan como competidores.
 - **El análisis de mercado puede tardar** (20 segundos o más la primera vez) porque recorre millones de contratos. Las consultas repetidas se guardan en memoria 10 minutos mientras la página siga abierta.
 - **datos.gov.co puede limitar las consultas** hechas sin token de aplicación. Si aparece un error de la fuente, espera un momento y reintenta.
-- La lista de requisitos de la oferta es una **plantilla general**; cada proceso tiene los suyos en el pliego de condiciones.
+- La lista de requisitos de la pestaña de seguimiento es una **plantilla general**; los requisitos propios de cada proceso están en su expediente, y aun así el pliego oficial es el que manda.
+- **La verificación de habilitantes es una ayuda, no un concepto jurídico.** Depende de que los requisitos estén bien validados y los datos de la empresa al día. En experiencia, un contrato cuenta si está en al menos uno de los códigos exigidos (hay pliegos que exigen todos), y no se suman los integrantes de un consorcio: se evalúa solo tu empresa. La tabla de SMMLV está en `site/habilitantes.js` y hay que agregarle cada año nuevo.
+- **Una adenda puede cambiar requisitos y fechas.** Vuelve a analizar el pliego modificado, extrae de nuevo y confirma otra vez las fechas: la página no detecta adendas por sí sola.
+- **El expediente vive en un solo navegador.** Si se borran los datos del sitio, se pierde lo que no esté en un respaldo. Abrir `index.html` con doble clic y usar la página publicada son almacenes distintos.
+- **Esta página no presenta ofertas.** SECOP II no ofrece una vía para hacerlo desde fuera: la oferta la carga y la firma el representante legal con su usuario.
 - **El equipo no comparte datos dentro de la página.** Las búsquedas guardadas y el seguimiento viven en cada navegador; se comparten con enlaces o con el CSV. Las alertas las administra una sola cuenta de GitHub (la de quien conectó su token). Un tablero compartido con inicio de sesión requeriría una base de datos y es la mejora pendiente más grande.
 
 Esta herramienta ayuda a encontrar y priorizar oportunidades; no presenta ofertas ni garantiza adjudicaciones.
@@ -101,15 +115,23 @@ Son pruebas unitarias de la lógica (consultas, puntuación, índice de dificult
 - `site/secop.js`: validación de entradas, consultas SoQL, puntuación, cliente de datos.gov.co y mercado. Funciona en el navegador y en Node.
 - `site/analisis.js`: resumen de competencia, índice de dificultad, enmascarado de documentos y CSV.
 - `site/ia.js`: solicitudes a la API de Anthropic (pliego con citas, evaluación, triaje), costos y errores.
+- `site/expediente.js`: modelo del expediente (requisitos, cronograma, decisión), limpieza de lo que llega de la IA o de un respaldo, y calendario `.ics`.
+- `site/habilitantes.js`: datos numéricos de la empresa, tabla de SMMLV, cruce de requisitos y tarjeta de decisión.
+- `site/almacen.js`: expedientes en IndexedDB y respaldo en archivo.
 - `site/config-alertas.js` y `site/gist.js`: configuración de las alertas (validación compartida con el programa de alertas) y su lectura y escritura en el gist de GitHub.
 - `site/js/`: la interfaz, un archivo por pestaña (`oportunidades.js`, `adjudicados.js`, `mercado.js`, `seguimiento.js`, `empresa.js`…).
 - `site/index.html`, `site/styles.css`: página y estilos.
 - `site/vendor/`: SDK oficial de Anthropic empaquetado en un solo archivo (se carga solo cuando se usa la IA). Para regenerarlo: `tools/anthropic-sdk/construir.sh [versión]`.
-- `test/`: pruebas de `secop.js`, `analisis.js`, `ia.js`, `config-alertas.js` y `gist.js`.
+- `test/`: pruebas de `secop.js`, `analisis.js`, `ia.js`, `expediente.js`, `habilitantes.js`, `almacen.js`, `config-alertas.js` y `gist.js`.
 - `../alertas/`: motor de alertas por Telegram y su guía.
 - `../.github/workflows/`: `pages.yml` (publicación), `tests.yml` (pruebas) y `alertas.yml` (avisos programados).
 
 ## Pendiente
+
+- Estudio de precio con el historial de ofertas (falta confirmar que los datos abiertos traen el valor de cada oferta, no solo el del ganador).
+- Lista de documentos de la oferta derivada del pliego y relleno de los anexos de la entidad.
+- Borrador de observaciones al pliego y comparación de adendas.
+- Recordatorios del cronograma por Telegram (hoy el calendario `.ics` cumple esa función sin publicar las fechas en ningún sitio).
 
 - Tablero compartido para el equipo con inicio de sesión (necesita una base de datos, por ejemplo Supabase).
 - Alertas por WhatsApp (requiere la API de WhatsApp Business de Meta o un proveedor como Twilio; ver `alertas/README.md`).

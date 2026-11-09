@@ -106,9 +106,10 @@ function htmlResultadoIA(r) {
     <div class="analisis-ia">
       <p class="ayuda">Análisis de «${esc(r.archivo)}» con ${esc(nombreModelo(r.modelo))}${costo === null ? "" : `. Costo aproximado: ${esc(IA.formatoUSD(costo))}`}.</p>
       ${r.truncado ? '<p class="aviso-limite">La respuesta llegó al límite de longitud y puede estar incompleta.</p>' : ""}
-      <div class="texto-ia">${r.html}</div>
+      <div class="texto-ia">${IA.markdownLigero(r.marcado)}</div>
       ${r.fuentes.length ? `<details id="ia-fuentes"><summary>Fuentes citadas (${r.fuentes.length})</summary>${IA.htmlFuentes(r.fuentes)}</details>` : ""}
-      <p class="ayuda">La IA puede equivocarse. Los números entre corchetes indican la página del PDF donde aparece cada dato: confírmalo en el pliego.</p>
+      <p class="ayuda">La IA puede equivocarse. Los números entre corchetes indican la página del PDF donde aparece cada dato: confírmalo en el pliego.
+        El análisis queda guardado en el expediente de este proceso, en este navegador; el PDF no se guarda.</p>
       <div class="acciones">
         <button class="boton primario-suave" id="ia-evaluar">Evaluar contra mi empresa</button>
         <button class="boton" id="ia-copiar">Copiar texto</button>
@@ -204,9 +205,11 @@ async function analizarPliegoConIA(proceso) {
     const dibujado = IA.renderizarAnalisis(respuesta.contenido);
     estado.ia[proceso.id] = {
       archivo: preparado.archivo.name, modelo: respuesta.modelo, truncado: respuesta.truncado, uso: respuesta.uso,
-      html: dibujado.html, fuentes: dibujado.fuentes, texto: dibujado.texto, evaluacion: null,
+      marcado: dibujado.marcado, fuentes: dibujado.fuentes, texto: dibujado.texto, evaluacion: null,
+      fecha: Secop.fechaIso(new Date()),
     };
     analisisEnCurso = null;
+    Radar.alAnalizar.forEach((enganche) => enganche(proceso));
     if (detalleVigente(proceso.id)) renderSeccionIA(proceso);
   } catch (error) {
     analisisEnCurso = null;
@@ -227,6 +230,7 @@ async function evaluarContraMiEmpresa(proceso) {
       clave: claveIA(), modelo: $("#ia-modelo")?.value || configuracionIA().modeloAnalisis,
       analisis: resultado.texto, empresa: perfilEmpresa(), proceso,
     });
+    Radar.alAnalizar.forEach((enganche) => enganche(proceso));
     if (detalleVigente(proceso.id)) {
       $("#ia-evaluacion").innerHTML = htmlEvaluacion(resultado.evaluacion);
       mostrar("");

@@ -36,11 +36,17 @@ const estado = {
   anioMercado: new Date().getFullYear() - 3,
   detalle: null,
   triaje: {}, // id de proceso -> evaluación de la IA (encaja, razón, alerta)
-  ia: {}, // id de proceso -> análisis del pliego y su evaluación, mientras la página siga abierta
+  ia: {}, // id de proceso -> análisis del pliego y su evaluación (se guarda además en el expediente)
+  dificultad: {}, // id de proceso -> índice de dificultad ya calculado, para la tarjeta de decisión
 };
 
 // Cada pantalla registra aquí lo que debe hacer al mostrarse y al iniciar la página.
-const Radar = { alMostrar: {}, iniciadores: [], alAbrirDetalle: [], alCambiarSeguimiento: [] };
+const Radar = {
+  alMostrar: {}, iniciadores: [], alAbrirDetalle: [], alCambiarSeguimiento: [],
+  alAnalizar: [], // (proceso) cuando la IA termina un análisis o una evaluación
+  alConocerDificultad: [], // (proceso) cuando se calcula el índice de dificultad
+  alDibujarEmpresa: [], // () cada vez que se dibuja la pestaña "Empresa e IA"
+};
 const registrarInicio = (funcion) => Radar.iniciadores.push(funcion);
 
 // --- Almacenamiento local -----------------------------------------------------

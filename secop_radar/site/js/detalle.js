@@ -25,7 +25,8 @@ function cuerpoDetalle(p) {
       <h3 id="detalle-competencia-titulo">Competencia en esta entidad y categoría</h3>
       <div id="detalle-competencia">${mensaje("Revisando el historial de adjudicaciones de esta entidad…")}</div>
     </section>
-    <div id="detalle-ia"></div>`;
+    <div id="detalle-ia"></div>
+    <div id="detalle-expediente"></div>`;
 }
 
 function contextoCompetencia(resumen) {
@@ -95,7 +96,10 @@ async function cargarCompetencia(proceso) {
     const crudo = await Secop.competenciaHistorica({ nit_entidad: proceso.nit_entidad, categoria: proceso.categoria });
     if (estado.detalle?.id !== proceso.id) return; // la persona cerró la ventana o abrió otro proceso
     const resumen = Analisis.resumirCompetencia(crudo);
-    caja.innerHTML = renderCompetencia(resumen, Analisis.indiceDificultad(resumen));
+    const indice = Analisis.indiceDificultad(resumen);
+    caja.innerHTML = renderCompetencia(resumen, indice);
+    estado.dificultad[proceso.id] = indice;
+    Radar.alConocerDificultad.forEach((enganche) => enganche(proceso));
   } catch (error) {
     if (estado.detalle?.id === proceso.id) caja.innerHTML = mensaje(error.message, "error");
   }
